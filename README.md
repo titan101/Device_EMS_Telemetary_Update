@@ -5,7 +5,7 @@ Dashboard and automation framework for Juniper EMS and telemetry changes across 
 ## Run It
 
 ```bat
-cd .\Device_EMS_Telemetary_Update
+cd Device_EMS_Telemetary_Update
 run_dashboard.bat
 ```
 
