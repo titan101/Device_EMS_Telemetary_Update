@@ -57,7 +57,7 @@ def write_reports(run: RunState) -> dict[str, Path]:
 
     counts = summary_counts(run)
     lines = [
-        f"# EMS Telemetary Update Summary - {run.change_id}",
+        f"# EMS Telemetry Update Summary - {run.change_id}",
         "",
         f"- Devices given: {counts.get('given', 0)}",
         f"- Devices processed: {counts.get('processed', 0)}",

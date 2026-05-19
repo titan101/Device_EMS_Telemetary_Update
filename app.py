@@ -25,7 +25,7 @@ from device_ems_telemetary_update.workflow import (
 
 
 st.set_page_config(
-    page_title="Device EMS Telemetary Update",
+    page_title="Device EMS Telemetry Update",
     page_icon="NET",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -36,21 +36,50 @@ def inject_css() -> None:
     st.markdown(
         """
         <style>
+        :root {
+            --ops-bg: #0b0f14;
+            --ops-panel: #111820;
+            --ops-panel-2: #151f2a;
+            --ops-field: #0c1219;
+            --ops-ink: #eef4f8;
+            --ops-muted: #95a7b7;
+            --ops-line: #263544;
+            --ops-accent: #35c2a2;
+            --ops-accent-2: #67a7ff;
+        }
+        .stApp { background: linear-gradient(180deg, rgba(53, 194, 162, 0.08), transparent 260px), var(--ops-bg); color: var(--ops-ink); }
         .block-container { padding-top: 1.2rem; max-width: 1500px; }
+        h1, h2, h3 { color: var(--ops-ink); letter-spacing: 0; }
+        [data-testid="stHeader"] { background: rgba(11, 15, 20, 0.9); }
+        [data-testid="stSidebar"] { background: var(--ops-panel); border-right: 1px solid var(--ops-line); }
         div[data-testid="stMetric"] {
-            border: 1px solid #d9e2df;
+            border: 1px solid var(--ops-line);
             border-radius: 8px;
             padding: 0.8rem 0.9rem;
-            background: #fbfcfb;
+            background: var(--ops-panel);
         }
-        div[data-testid="stMetric"] label { color: #37524a; }
+        div[data-testid="stMetric"] label { color: var(--ops-muted); }
+        div[data-testid="stMetricValue"] { color: var(--ops-accent); }
+        div[data-testid="stTabs"] button { color: var(--ops-muted); }
+        div[data-testid="stTabs"] button[aria-selected="true"] { color: var(--ops-ink); border-bottom-color: var(--ops-accent); }
+        .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
+            background: var(--ops-field);
+            border-color: var(--ops-line);
+            color: var(--ops-ink);
+        }
+        .stDataFrame, div[data-testid="stExpander"] {
+            border: 1px solid var(--ops-line);
+            border-radius: 8px;
+            overflow: hidden;
+        }
         .phase-title {
-            border-left: 4px solid #26735d;
+            border-left: 4px solid var(--ops-accent);
             padding-left: 0.75rem;
             font-weight: 700;
             margin: 0.5rem 0 1rem 0;
+            color: var(--ops-ink);
         }
-        .small-muted { color: #61736e; font-size: 0.9rem; }
+        .small-muted { color: var(--ops-muted); font-size: 0.9rem; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -413,7 +442,7 @@ def main() -> None:
     init_session()
     run = current_run()
 
-    st.title("Device EMS Telemetary Update")
+    st.title("Device EMS Telemetry Update")
     st.caption(f"Change: {run.change_id} | Last updated: {run.updated_at}")
     metrics_row(run)
     device_table(run)
