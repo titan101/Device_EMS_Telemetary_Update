@@ -14,6 +14,7 @@ from device_ems_telemetary_update.models import CredentialProfile, DesiredState,
 from device_ems_telemetary_update.reachability import parse_targets
 from device_ems_telemetary_update.reporting import device_rows, write_reports
 from device_ems_telemetary_update.storage import load_run, safe_change_id, save_run
+from device_ems_telemetary_update.template_engine import available_junos_templates
 from device_ems_telemetary_update.workflow import (
     audit_devices,
     build_configs,
@@ -222,6 +223,37 @@ def targets_tab(run: RunState) -> None:
 def desired_state_tab(run: RunState) -> None:
     st.markdown('<div class="phase-title">Desired EMS And Telemetry State</div>', unsafe_allow_html=True)
     desired = run.desired
+    template_specs = available_junos_templates()
+    template_label_to_id = {f"{spec.label} ({spec.template_id})": spec.template_id for spec in template_specs}
+    selected_ids = set(desired.selected_templates)
+    selected_labels = [
+        label for label, template_id in template_label_to_id.items() if template_id in selected_ids
+    ] or list(template_label_to_id)
+    chosen_template_labels = st.multiselect(
+        "Jinja change templates",
+        list(template_label_to_id),
+        default=selected_labels,
+    )
+    selected_templates = [template_label_to_id[label] for label in chosen_template_labels]
+    with st.expander("Available Jinja templates", expanded=False):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "id": spec.template_id,
+                        "label": spec.label,
+                        "platforms": ", ".join(spec.platforms),
+                        "device_types": ", ".join(spec.device_types) or "any",
+                        "path": spec.path,
+                        "description": spec.description,
+                    }
+                    for spec in template_specs
+                ]
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
     col_a, col_b, col_c = st.columns(3)
     tacacs_servers = col_a.text_area("TACACS server IPs", value=as_lines(desired.tacacs_servers), height=130)
     ntp_servers = col_b.text_area("NTP server IPs", value=as_lines(desired.ntp_servers), height=130)
@@ -231,6 +263,16 @@ def desired_state_tab(run: RunState) -> None:
     snmp_communities = col_d.text_area("SNMP communities", value=as_lines(desired.snmp_communities), height=110)
     snmp_clients = col_e.text_area("SNMP allowed clients", value=as_lines(desired.snmp_clients), height=110)
     tacacs_secret = col_f.text_input("TACACS shared secret", value=desired.tacacs_secret, type="password")
+    discovery_snmp_communities = st.text_area(
+        "SNMP discovery communities",
+        value=as_lines(desired.discovery_snmp_communities),
+        height=80,
+    )
+    legacy_login_users = st.text_area(
+        "Legacy login users to delete",
+        value=as_lines(desired.login_users_to_delete),
+        height=80,
+    )
 
     c1, c2, c3, c4 = st.columns(4)
     enable_netconf = c1.checkbox("Enable NETCONF SSH", value=desired.enable_netconf)
@@ -238,12 +280,13 @@ def desired_state_tab(run: RunState) -> None:
     auth_order = c3.checkbox("Auth order TACACS then local", value=desired.auth_order_tacacs_then_local)
     ntp_prefer_first = c4.checkbox("Prefer first NTP server", value=desired.ntp_prefer_first)
 
-    clean_cols = st.columns(5)
+    clean_cols = st.columns(6)
     cleanup_old_tacacs = clean_cols[0].checkbox("Delete old TACACS", value=desired.cleanup_old_tacacs)
     cleanup_old_radius = clean_cols[1].checkbox("Delete old RADIUS", value=desired.cleanup_old_radius)
-    cleanup_old_ntp = clean_cols[2].checkbox("Delete old NTP", value=desired.cleanup_old_ntp)
-    cleanup_old_syslog = clean_cols[3].checkbox("Delete old syslog", value=desired.cleanup_old_syslog)
-    cleanup_old_snmp = clean_cols[4].checkbox("Delete old SNMP", value=desired.cleanup_old_snmp)
+    cleanup_old_login_users = clean_cols[2].checkbox("Delete listed users", value=desired.cleanup_old_login_users)
+    cleanup_old_ntp = clean_cols[3].checkbox("Delete old NTP", value=desired.cleanup_old_ntp)
+    cleanup_old_syslog = clean_cols[4].checkbox("Delete old syslog", value=desired.cleanup_old_syslog)
+    cleanup_old_snmp = clean_cols[5].checkbox("Delete old SNMP", value=desired.cleanup_old_snmp)
 
     t1, t2, t3, t4 = st.columns(4)
     tacacs_timeout = int(t1.number_input("TACACS timeout", min_value=1, max_value=60, value=int(desired.tacacs_timeout)))
@@ -266,10 +309,13 @@ def desired_state_tab(run: RunState) -> None:
 
     if st.button("Save desired state", type="primary"):
         run.desired = DesiredState(
+            selected_templates=selected_templates,
+            discovery_snmp_communities=lines_from_text(discovery_snmp_communities),
             tacacs_servers=lines_from_text(tacacs_servers),
             tacacs_secret=tacacs_secret,
             tacacs_timeout=tacacs_timeout,
             auth_order_tacacs_then_local=auth_order,
+            login_users_to_delete=lines_from_text(legacy_login_users),
             ntp_servers=lines_from_text(ntp_servers),
             ntp_prefer_first=ntp_prefer_first,
             syslog_hosts=lines_from_text(syslog_hosts),
@@ -281,6 +327,7 @@ def desired_state_tab(run: RunState) -> None:
             enable_lldp=enable_lldp,
             cleanup_old_tacacs=cleanup_old_tacacs,
             cleanup_old_radius=cleanup_old_radius,
+            cleanup_old_login_users=cleanup_old_login_users,
             cleanup_old_ntp=cleanup_old_ntp,
             cleanup_old_syslog=cleanup_old_syslog,
             cleanup_old_snmp=cleanup_old_snmp,
@@ -296,8 +343,8 @@ def discovery_tab(run: RunState) -> None:
     st.markdown('<div class="phase-title">Phase 1 Discovery</div>', unsafe_allow_html=True)
     selected = device_selection(run, "discovery_devices")
     if st.button("Ping and discover selected devices", type="primary"):
-        if not st.session_state.credentials:
-            st.error("Unlock or add credentials first.")
+        if not st.session_state.credentials and not run.desired.discovery_snmp_communities:
+            st.error("Unlock or add credentials first, or add SNMP discovery communities in Desired State.")
         else:
             with st.spinner("Running reachability and discovery..."):
                 st.session_state.run = run_discovery(run, st.session_state.credentials, selected)
@@ -323,12 +370,16 @@ def build_tab(run: RunState) -> None:
                 {
                     "hostname": record.hostname,
                     "model": record.model,
+                    "device_type": record.device_type,
                     "version": record.version,
                     "existing_tacacs": record.existing.tacacs_servers,
                     "existing_radius": record.existing.radius_servers,
+                    "existing_login_users": record.existing.login_users,
                     "existing_ntp": record.existing.ntp_servers,
                     "existing_syslog": record.existing.syslog_hosts,
                     "existing_snmp": record.existing.snmp_communities,
+                    "selected_templates": run.desired.selected_templates,
+                    "fix_file": record.fix_file_path,
                 }
             )
             st.code("\n".join(record.generated_config) or "No generated config yet.", language="text")
@@ -427,10 +478,41 @@ def device_table(run: RunState) -> None:
                 "ping": record.pingable,
                 "hostname": record.hostname,
                 "model": record.model,
+                "device_type": record.device_type,
                 "version": record.version,
                 "driver": record.driver,
                 "status": record.status,
                 "error": record.error,
+            }
+        )
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def logs_tab(run: RunState) -> None:
+    st.markdown('<div class="phase-title">Console Logs</div>', unsafe_allow_html=True)
+    all_lines = list(run.logs)
+    for target in run.targets:
+        record = run.devices.get(target)
+        if not record:
+            continue
+        all_lines.extend(f"{target} | {line}" for line in record.logs)
+    st.text_area("Run console", value="\n".join(all_lines[-1000:]), height=520)
+    rows = []
+    for target in run.targets:
+        record = run.devices.get(target)
+        if not record:
+            continue
+        rows.append(
+            {
+                "target": target,
+                "status": record.status,
+                "driver": record.driver,
+                "model": record.model,
+                "device_type": record.device_type,
+                "fix_file": record.fix_file_path,
+                "last_error": record.error,
+                "log_entries": len(record.logs),
             }
         )
     if rows:
@@ -457,6 +539,7 @@ def main() -> None:
             "Phase 3 Deploy",
             "Phase 4 Audit",
             "Phase 5 Reports",
+            "Logs",
         ]
     )
     with tabs[0]:
@@ -475,6 +558,8 @@ def main() -> None:
         audit_tab(run)
     with tabs[7]:
         reports_tab(run)
+    with tabs[8]:
+        logs_tab(run)
 
 
 if __name__ == "__main__":

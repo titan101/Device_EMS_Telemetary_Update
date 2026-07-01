@@ -1,0 +1,14 @@
+# id: syslog_hosts
+# label: Syslog Hosts
+# description: Delete old syslog hosts and set the desired syslog collectors.
+# platforms: junos,ex,mx
+{% if desired.cleanup_old_syslog %}
+{% for host in existing.syslog_hosts %}
+{% if host not in desired.syslog_hosts %}
+delete system syslog host {{ host }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% for host in desired.syslog_hosts %}
+set system syslog host {{ host }} any {{ desired.syslog_any_severity }}
+{% endfor %}

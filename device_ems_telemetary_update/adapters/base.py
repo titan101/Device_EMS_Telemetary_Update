@@ -9,7 +9,12 @@ class DeviceAdapter(ABC):
     vendor = "generic"
 
     @abstractmethod
-    def discover(self, target: str, credentials: list[CredentialProfile]) -> DeviceRecord:
+    def discover(
+        self,
+        target: str,
+        credentials: list[CredentialProfile],
+        desired: DesiredState | None = None,
+    ) -> DeviceRecord:
         raise NotImplementedError
 
     @abstractmethod
