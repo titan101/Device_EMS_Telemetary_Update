@@ -23,6 +23,8 @@ class ExistingConfig:
     tacacs_servers: list[str] = field(default_factory=list)
     radius_servers: list[str] = field(default_factory=list)
     radius_delete_lines: list[str] = field(default_factory=list)
+    login_users: list[str] = field(default_factory=list)
+    login_user_delete_lines: list[str] = field(default_factory=list)
     ntp_servers: list[str] = field(default_factory=list)
     syslog_hosts: list[str] = field(default_factory=list)
     snmp_communities: list[str] = field(default_factory=list)
@@ -33,10 +35,21 @@ class ExistingConfig:
 
 @dataclass
 class DesiredState:
+    selected_templates: list[str] = field(
+        default_factory=lambda: [
+            "tacacs_users",
+            "snmp_communities",
+            "ntp_servers",
+            "syslog_hosts",
+            "netconf_lldp",
+        ]
+    )
+    discovery_snmp_communities: list[str] = field(default_factory=list)
     tacacs_servers: list[str] = field(default_factory=list)
     tacacs_secret: str = ""
     tacacs_timeout: int = 5
     auth_order_tacacs_then_local: bool = True
+    login_users_to_delete: list[str] = field(default_factory=list)
     ntp_servers: list[str] = field(default_factory=list)
     ntp_prefer_first: bool = True
     syslog_hosts: list[str] = field(default_factory=list)
@@ -48,6 +61,7 @@ class DesiredState:
     enable_lldp: bool = True
     cleanup_old_tacacs: bool = True
     cleanup_old_radius: bool = True
+    cleanup_old_login_users: bool = False
     cleanup_old_ntp: bool = False
     cleanup_old_syslog: bool = False
     cleanup_old_snmp: bool = False
@@ -67,6 +81,7 @@ class DeviceRecord:
     status: str = "new"
     hostname: str = ""
     model: str = ""
+    device_type: str = ""
     version: str = ""
     serial_number: str = ""
     driver: str = ""
@@ -74,6 +89,7 @@ class DeviceRecord:
     auth_attempts: list[str] = field(default_factory=list)
     existing: ExistingConfig = field(default_factory=ExistingConfig)
     generated_config: list[str] = field(default_factory=list)
+    fix_file_path: str = ""
     candidate_diff: str = ""
     deploy_result: str = ""
     audit_result: str = ""
@@ -96,9 +112,14 @@ class RunState:
     devices: dict[str, DeviceRecord] = field(default_factory=dict)
     notes: str = ""
     dry_run: bool = True
+    logs: list[str] = field(default_factory=list)
 
     def touch(self) -> None:
         self.updated_at = utc_now()
+
+    def log(self, message: str) -> None:
+        self.logs.append(f"{utc_now()} {message}")
+        self.touch()
 
 
 def _dataclass_from_dict(cls: type, data: dict[str, Any]):

@@ -7,5 +7,7 @@ logs/
 data/credential_vault.json
 data/runs/*.json
 data/reports/*
+data/fix_files/*
 !data/runs/.gitkeep
 !data/reports/.gitkeep
+!data/fix_files/.gitkeep

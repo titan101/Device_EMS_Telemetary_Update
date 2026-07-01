@@ -11,12 +11,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 RUNS_DIR = DATA_DIR / "runs"
 REPORTS_DIR = DATA_DIR / "reports"
+FIX_FILES_DIR = DATA_DIR / "fix_files"
 VAULT_FILE = DATA_DIR / "credential_vault.json"
 
 
 def ensure_data_dirs() -> None:
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    FIX_FILES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def safe_change_id(change_id: str) -> str:

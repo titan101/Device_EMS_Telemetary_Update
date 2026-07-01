@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from contextlib import suppress
 
 from .base import DeviceAdapter
+from ..device_types import classify_junos_platform
 from ..models import CredentialProfile, DesiredState, DeviceRecord, ExistingConfig
 
 
 CONFIG_COMMANDS = {
     "tacacs": "show configuration system tacplus-server | display set | no-more",
     "radius": "show configuration | display set | match \"radius-server\" | no-more",
+    "login": "show configuration system login | display set | no-more",
     "ntp": "show configuration system ntp | display set | no-more",
     "syslog": "show configuration system syslog | display set | no-more",
     "snmp": "show configuration snmp | display set | no-more",
@@ -32,6 +35,7 @@ def _unique(values: list[str]) -> list[str]:
 def _parse_existing(sections: dict[str, str]) -> ExistingConfig:
     tacacs = re.findall(r"set system tacplus-server\s+(\S+)", sections.get("tacacs", ""))
     radius = re.findall(r"set (?:system|access) radius-server\s+(\S+)", sections.get("radius", ""))
+    login_users = re.findall(r"set system login user\s+(\S+)", sections.get("login", ""))
     ntp = re.findall(r"set system ntp server\s+(\S+)", sections.get("ntp", ""))
     syslog = re.findall(r"set system syslog host\s+(\S+)", sections.get("syslog", ""))
     snmp = re.findall(r"set snmp community\s+(\S+)", sections.get("snmp", ""))
@@ -40,10 +44,13 @@ def _parse_existing(sections: dict[str, str]) -> ExistingConfig:
         line = line.strip()
         if line.startswith("set system radius-server ") or line.startswith("set access radius-server "):
             radius_delete_lines.append("delete " + line[4:])
+    login_user_delete_lines = [f"delete system login user {user}" for user in _unique(login_users)]
     return ExistingConfig(
         tacacs_servers=_unique(tacacs),
         radius_servers=_unique(radius),
         radius_delete_lines=_unique(radius_delete_lines),
+        login_users=_unique(login_users),
+        login_user_delete_lines=login_user_delete_lines,
         ntp_servers=_unique(ntp),
         syslog_hosts=_unique(syslog),
         snmp_communities=_unique(snmp),
@@ -66,7 +73,12 @@ def _ordered_credentials(credentials: list[CredentialProfile], audit_only: bool 
 class JunosAdapter(DeviceAdapter):
     vendor = "junos"
 
-    def discover(self, target: str, credentials: list[CredentialProfile]) -> DeviceRecord:
+    def discover(
+        self,
+        target: str,
+        credentials: list[CredentialProfile],
+        desired: DesiredState | None = None,
+    ) -> DeviceRecord:
         record = DeviceRecord(target=target, address=target, vendor=self.vendor)
         for credential in _ordered_credentials(credentials):
             record.auth_attempts.append(credential.label)
@@ -79,6 +91,10 @@ class JunosAdapter(DeviceAdapter):
                 except Exception as netmiko_exc:
                     record.log(f"Netmiko discovery failed with {credential.label}: {netmiko_exc}")
                     record.error = str(netmiko_exc)
+        if desired and desired.discovery_snmp_communities:
+            snmp_record = self._discover_snmp(record, desired.discovery_snmp_communities)
+            if snmp_record.status == "discovery_complete":
+                return snmp_record
         record.phase = "discovery"
         record.status = "auth_failed"
         if not record.error:
@@ -178,6 +194,7 @@ class JunosAdapter(DeviceAdapter):
                     sections[name] = dev.cli(command, warning=False)
             record.hostname = str(facts.get("hostname") or "")
             record.model = str(facts.get("model") or "")
+            record.device_type = classify_junos_platform(record.model)
             record.version = str(facts.get("version") or facts.get("junos_info") or "")
             record.serial_number = str(facts.get("serialnumber") or "")
             record.existing = _parse_existing(sections)
@@ -201,6 +218,7 @@ class JunosAdapter(DeviceAdapter):
             version_match = re.search(r"Junos:\s+(\S+)", version_output)
             record.hostname = hostname_match.group(1) if hostname_match else ""
             record.model = model_match.group(1) if model_match else ""
+            record.device_type = classify_junos_platform(record.model)
             record.version = version_match.group(1) if version_match else ""
             record.existing = _parse_existing(sections)
             record.driver = "netmiko"
@@ -212,6 +230,26 @@ class JunosAdapter(DeviceAdapter):
             return record
         finally:
             conn.disconnect()
+
+    def _discover_snmp(self, record: DeviceRecord, communities: list[str]) -> DeviceRecord:
+        for community in communities:
+            try:
+                sys_descr = snmp_get_sysdescr(record.target, community)
+            except Exception as exc:
+                record.log(f"SNMP discovery failed with community {community}: {exc}")
+                continue
+            model = parse_model_from_sysdescr(sys_descr)
+            record.phase = "discovery"
+            record.status = "discovery_complete" if model else "discovery_failed"
+            record.driver = "snmp"
+            record.credential_label = f"snmp:{community}"
+            record.model = model
+            record.device_type = classify_junos_platform(model)
+            record.version = parse_version_from_sysdescr(sys_descr)
+            record.error = "" if model else "SNMP responded but model could not be parsed."
+            record.log("Discovery completed through SNMP sysDescr.")
+            return record
+        return record
 
     def _open_pyez(self, target: str, credential: CredentialProfile):
         from jnpr.junos import Device
@@ -311,3 +349,45 @@ class JunosAdapter(DeviceAdapter):
             record.log("Confirmed pending commit through Netmiko.")
         finally:
             conn.disconnect()
+
+
+def parse_model_from_sysdescr(sys_descr: str) -> str:
+    match = re.search(r"\b(EX|MX|PTX)\d+[A-Z0-9-]*\b", sys_descr or "", flags=re.IGNORECASE)
+    return match.group(0).upper() if match else ""
+
+
+def parse_version_from_sysdescr(sys_descr: str) -> str:
+    match = re.search(r"\bJUNOS\s+([A-Z0-9.\-R]+)", sys_descr or "", flags=re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
+def snmp_get_sysdescr(target: str, community: str, timeout: float = 1.5, retries: int = 1) -> str:
+    return asyncio.run(_snmp_get_sysdescr_async(target, community, timeout, retries))
+
+
+async def _snmp_get_sysdescr_async(target: str, community: str, timeout: float, retries: int) -> str:
+    from pysnmp.hlapi.v3arch.asyncio import (  # type: ignore[import-untyped]
+        CommunityData,
+        ContextData,
+        ObjectIdentity,
+        ObjectType,
+        SnmpEngine,
+        UdpTransportTarget,
+        get_cmd,
+    )
+
+    transport = await UdpTransportTarget.create((target, 161), timeout=timeout, retries=retries)
+    error_indication, error_status, _error_index, var_binds = await get_cmd(
+        SnmpEngine(),
+        CommunityData(community, mpModel=1),
+        transport,
+        ContextData(),
+        ObjectType(ObjectIdentity("1.3.6.1.2.1.1.1.0")),
+    )
+    if error_indication:
+        raise RuntimeError(str(error_indication))
+    if error_status:
+        raise RuntimeError(str(error_status.prettyPrint()))
+    for _oid, value in var_binds:
+        return str(value)
+    return ""
