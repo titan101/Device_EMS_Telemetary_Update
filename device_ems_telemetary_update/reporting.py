@@ -20,6 +20,7 @@ def device_rows(run: RunState) -> list[dict[str, str]]:
                 "target": record.target,
                 "hostname": record.hostname,
                 "model": record.model,
+                "device_type": record.device_type,
                 "version": record.version,
                 "pingable": str(record.pingable),
                 "driver": record.driver,
@@ -28,10 +29,12 @@ def device_rows(run: RunState) -> list[dict[str, str]]:
                 "status": record.status,
                 "existing_tacacs": ", ".join(record.existing.tacacs_servers),
                 "existing_radius": ", ".join(record.existing.radius_servers),
+                "existing_login_users": ", ".join(record.existing.login_users),
                 "existing_ntp": ", ".join(record.existing.ntp_servers),
                 "existing_syslog": ", ".join(record.existing.syslog_hosts),
                 "existing_snmp": ", ".join(record.existing.snmp_communities),
                 "generated_lines": str(len(record.generated_config)),
+                "fix_file": record.fix_file_path,
                 "deploy_result": record.deploy_result,
                 "audit_result": record.audit_result,
                 "error": record.error,
@@ -70,7 +73,10 @@ def write_reports(run: RunState) -> dict[str, Path]:
         "",
         "## Desired State",
         "",
+        f"- Jinja templates: {', '.join(run.desired.selected_templates) or 'none'}",
+        f"- SNMP discovery communities: {', '.join(run.desired.discovery_snmp_communities) or 'none'}",
         f"- TACACS servers: {', '.join(run.desired.tacacs_servers) or 'none'}",
+        f"- Legacy login users to delete: {', '.join(run.desired.login_users_to_delete) or 'none'}",
         f"- NTP servers: {', '.join(run.desired.ntp_servers) or 'none'}",
         f"- Syslog hosts: {', '.join(run.desired.syslog_hosts) or 'none'}",
         f"- SNMP communities: {', '.join(run.desired.snmp_communities) or 'none'}",
@@ -79,13 +85,13 @@ def write_reports(run: RunState) -> dict[str, Path]:
         "",
         "## Device Results",
         "",
-        "| Target | Hostname | Model | Version | Status | Error |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Target | Hostname | Model | Type | Version | Status | Fix File | Error |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
         error = row["error"].replace("|", "/")
         lines.append(
-            f"| {row['target']} | {row['hostname']} | {row['model']} | {row['version']} | {row['status']} | {error} |"
+            f"| {row['target']} | {row['hostname']} | {row['model']} | {row['device_type']} | {row['version']} | {row['status']} | {row['fix_file']} | {error} |"
         )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"csv": csv_path, "json": json_path, "markdown": md_path}

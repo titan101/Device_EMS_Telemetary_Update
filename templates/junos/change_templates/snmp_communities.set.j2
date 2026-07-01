@@ -1,0 +1,17 @@
+# id: snmp_communities
+# label: SNMP Communities
+# description: Delete old SNMP communities and set allowed acquired-company communities and client networks.
+# platforms: junos,ex,mx
+{% if desired.cleanup_old_snmp %}
+{% for community in existing.snmp_communities %}
+{% if community not in desired.snmp_communities %}
+delete snmp community {{ community }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% for community in desired.snmp_communities %}
+set snmp community {{ community }} authorization {{ desired.snmp_authorization }}
+{% for client in desired.snmp_clients %}
+set snmp community {{ community }} clients {{ client }}
+{% endfor %}
+{% endfor %}

@@ -1,0 +1,33 @@
+# id: tacacs_users
+# label: TACACS Servers And Login Users
+# description: Replace TACACS servers, remove old RADIUS, and delete explicitly listed legacy local login users.
+# platforms: junos,ex,mx
+{% if desired.cleanup_old_tacacs %}
+{% for server in existing.tacacs_servers %}
+{% if server not in desired.tacacs_servers %}
+delete system tacplus-server {{ server }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if desired.cleanup_old_radius %}
+{% for line in existing.radius_delete_lines %}
+{{ line }}
+{% endfor %}
+{% endif %}
+{% if desired.cleanup_old_login_users %}
+{% for user in desired.login_users_to_delete %}
+{% if user in existing.login_users %}
+delete system login user {{ user }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% for server in desired.tacacs_servers %}
+set system tacplus-server {{ server }} timeout {{ desired.tacacs_timeout }}
+{% if desired.tacacs_secret %}
+set system tacplus-server {{ server }} secret {{ desired.tacacs_secret|junos_quote }}
+{% endif %}
+{% endfor %}
+{% if desired.auth_order_tacacs_then_local and desired.tacacs_servers %}
+set system authentication-order tacplus
+set system authentication-order password
+{% endif %}
