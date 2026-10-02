@@ -1,11 +1,16 @@
 # id: snmp_communities
 # label: SNMP Communities
-# description: Delete old SNMP communities and set allowed acquired-company communities and client networks.
+# description: Delete old SNMP communities and trap-group targets, and set the desired communities, client networks, and trap targets.
 # platforms: junos,ex,mx
 {% if desired.cleanup_old_snmp %}
 {% for community in existing.snmp_communities %}
 {% if community not in desired.snmp_communities %}
 delete snmp community {{ community }}
+{% endif %}
+{% endfor %}
+{% for target in existing.snmp_trap_targets %}
+{% if target not in desired.snmp_trap_targets %}
+delete snmp trap-group {{ desired.snmp_trap_group }} targets {{ target }}
 {% endif %}
 {% endfor %}
 {% endif %}
@@ -14,4 +19,7 @@ set snmp community {{ community }} authorization {{ desired.snmp_authorization }
 {% for client in desired.snmp_clients %}
 set snmp community {{ community }} clients {{ client }}
 {% endfor %}
+{% endfor %}
+{% for target in desired.snmp_trap_targets %}
+set snmp trap-group {{ desired.snmp_trap_group }} targets {{ target }}
 {% endfor %}

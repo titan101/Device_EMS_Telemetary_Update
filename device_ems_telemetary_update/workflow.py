@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
-from .adapters import JunosAdapter
+from .adapters import JunosAdapter, parse_rancid_dump
 from .device_types import classify_junos_platform
 from .models import CredentialProfile, DeviceRecord, RunState
 from .reachability import ping_many
@@ -79,6 +80,34 @@ def run_discovery(run: RunState, credentials: list[CredentialProfile], selected:
             run.devices[target] = record
             run.log(f"Discovery finished for {target}: {record.status} model={record.model or 'unknown'} driver={record.driver or 'none'}.")
     run.log("Discovery phase complete.")
+    save_run(run)
+    return run
+
+
+def run_rancid_discovery(run: RunState, folder: Path, platform: str = "mx", pattern: str = "*") -> RunState:
+    """Offline discovery equivalent of run_discovery: parses one Junos 'display set'
+    config dump per file from a RANCID-style folder instead of pinging and SSHing
+    into live devices. Each file is named after its router hostname. Populates the
+    same DeviceRecord/ExistingConfig shape as live discovery, so build/report work
+    unchanged downstream."""
+    files = sorted(p for p in Path(folder).glob(pattern) if p.is_file())
+    run.targets = [p.stem for p in files]
+    run.devices = {}
+    run.log(f"RANCID discovery starting for {len(files)} file(s) in {folder}.")
+    for path in files:
+        hostname = path.stem
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        record = DeviceRecord(target=hostname, vendor="junos", address=hostname)
+        record.hostname = hostname
+        record.model = platform.upper()
+        record.device_type = classify_junos_platform(record.model)
+        record.driver = "rancid_file"
+        record.existing = parse_rancid_dump(text)
+        record.phase = "discovery"
+        record.status = "discovery_complete"
+        record.log(f"Parsed RANCID dump from {path.name}.")
+        run.devices[hostname] = record
+    run.log("RANCID discovery phase complete.")
     save_run(run)
     return run
 

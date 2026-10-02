@@ -28,6 +28,7 @@ class ExistingConfig:
     ntp_servers: list[str] = field(default_factory=list)
     syslog_hosts: list[str] = field(default_factory=list)
     snmp_communities: list[str] = field(default_factory=list)
+    snmp_trap_targets: list[str] = field(default_factory=list)
     netconf_enabled: bool = False
     lldp_enabled: bool = False
     raw_sections: dict[str, str] = field(default_factory=dict)
@@ -50,6 +51,7 @@ class DesiredState:
     tacacs_timeout: int = 5
     auth_order_tacacs_then_local: bool = True
     login_users_to_delete: list[str] = field(default_factory=list)
+    login_users_keep: list[str] = field(default_factory=list)
     ntp_servers: list[str] = field(default_factory=list)
     ntp_prefer_first: bool = True
     syslog_hosts: list[str] = field(default_factory=list)
@@ -57,6 +59,8 @@ class DesiredState:
     snmp_communities: list[str] = field(default_factory=list)
     snmp_clients: list[str] = field(default_factory=list)
     snmp_authorization: str = "read-only"
+    snmp_trap_targets: list[str] = field(default_factory=list)
+    snmp_trap_group: str = "public"
     enable_netconf: bool = True
     enable_lldp: bool = True
     cleanup_old_tacacs: bool = True

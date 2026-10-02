@@ -14,7 +14,15 @@ from .reachability import parse_targets
 from .reporting import write_reports
 from .storage import load_run, save_run
 from .template_engine import available_junos_templates
-from .workflow import audit_devices, build_configs, deploy_configs, ensure_device_records, run_discovery, summary_counts
+from .workflow import (
+    audit_devices,
+    build_configs,
+    deploy_configs,
+    ensure_device_records,
+    run_discovery,
+    run_rancid_discovery,
+    summary_counts,
+)
 
 
 def _resolve_passphrase(args: argparse.Namespace) -> str:
@@ -131,6 +139,13 @@ def cmd_discover(args: argparse.Namespace) -> None:
     _print_device_table(run)
 
 
+def cmd_discover_rancid(args: argparse.Namespace) -> None:
+    run = load_run(args.change_id)
+    run.change_id = args.change_id
+    run = run_rancid_discovery(run, Path(args.folder), platform=args.platform, pattern=args.glob)
+    _print_device_table(run)
+
+
 def cmd_build(args: argparse.Namespace) -> None:
     run = load_run(args.change_id)
     selected = args.targets.split(",") if args.targets else None
@@ -225,6 +240,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--targets", help="Comma-separated subset of targets. Defaults to all.")
     _add_passphrase_arg(p)
     p.set_defaults(func=cmd_discover)
+
+    p = sub.add_parser(
+        "discover-rancid",
+        help="Phase 1 (offline): parse RANCID-style Junos 'display set' config dumps from a folder instead of live SSH.",
+    )
+    p.add_argument("change_id")
+    p.add_argument("--folder", required=True, help="Directory with one config text file per router, named after the router hostname.")
+    p.add_argument("--platform", default="mx", choices=["mx", "ex", "ptx"], help="Platform to assume for template selection.")
+    p.add_argument("--glob", default="*", help="Filename glob to match within --folder.")
+    p.set_defaults(func=cmd_discover_rancid)
 
     p = sub.add_parser("build", help="Phase 2: render candidate configs for selected devices.")
     p.add_argument("change_id")

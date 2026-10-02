@@ -1,3 +1,3 @@
-from .junos import JunosAdapter
+from .junos import JunosAdapter, parse_rancid_dump
 
-__all__ = ["JunosAdapter"]
+__all__ = ["JunosAdapter", "parse_rancid_dump"]

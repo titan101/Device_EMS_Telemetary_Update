@@ -39,6 +39,7 @@ def _parse_existing(sections: dict[str, str]) -> ExistingConfig:
     ntp = re.findall(r"set system ntp server\s+(\S+)", sections.get("ntp", ""))
     syslog = re.findall(r"set system syslog host\s+(\S+)", sections.get("syslog", ""))
     snmp = re.findall(r"set snmp community\s+(\S+)", sections.get("snmp", ""))
+    snmp_trap_targets = re.findall(r"set snmp trap-group\s+\S+\s+targets\s+(\S+)", sections.get("snmp", ""))
     radius_delete_lines = []
     for line in sections.get("radius", "").splitlines():
         line = line.strip()
@@ -54,10 +55,20 @@ def _parse_existing(sections: dict[str, str]) -> ExistingConfig:
         ntp_servers=_unique(ntp),
         syslog_hosts=_unique(syslog),
         snmp_communities=_unique(snmp),
+        snmp_trap_targets=_unique(snmp_trap_targets),
         netconf_enabled="set system services netconf ssh" in sections.get("netconf", ""),
         lldp_enabled="set protocols lldp" in sections.get("lldp", ""),
         raw_sections=sections,
     )
+
+
+def parse_rancid_dump(text: str) -> ExistingConfig:
+    """Parse a full 'show configuration | display set' text dump (e.g. a RANCID
+    config file) using the same section regexes as live per-command discovery.
+    Every regex anchors on its full 'set ...' line prefix, so passing the whole
+    dump under every section key is safe and picks up all fields in one pass."""
+    sections = {name: text for name in CONFIG_COMMANDS}
+    return _parse_existing(sections)
 
 
 def _ordered_credentials(credentials: list[CredentialProfile], audit_only: bool = False) -> list[CredentialProfile]:

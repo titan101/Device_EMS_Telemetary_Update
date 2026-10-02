@@ -1,0 +1,16 @@
+[Unit]
+Description=Device EMS Telemetry Update (Streamlit dashboard)
+After=network.target
+
+[Service]
+Type=simple
+User=REPLACE_WITH_SERVICE_USER
+WorkingDirectory=/opt/Device_EMS_Telemetary_Update
+Environment=DEVICE_EMS_HOST=0.0.0.0
+Environment=DEVICE_EMS_PORT=8502
+ExecStart=/opt/Device_EMS_Telemetary_Update/run_server.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -105,6 +105,45 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m device_ems_telemetary_update.cli --help
 ```
 
+## RANCID / Offline Watchdog Discovery
+
+For periodic audits (e.g. a weekly cron job ahead of a TACACS/syslog/NTP/SNMP server migration) you often don't want to open 400 live SSH sessions just to see what's currently configured. `discover-rancid` parses local Junos `show configuration | display set` text dumps instead — the same format RANCID stores, one file per router, named after the router's hostname:
+
+```bash
+./run_cli.sh discover-rancid WATCHDOG-20260702 --folder /path/to/rancid/configs/ --platform mx
+./run_cli.sh desired-set WATCHDOG-20260702 --file config/desired_state.tacacs_migration.json
+./run_cli.sh build WATCHDOG-20260702
+./run_cli.sh report WATCHDOG-20260702
+```
+
+`run_watchdog.sh` wraps this exact sequence for cron (`RANCID folder` and `desired-state file` as optional positional args, defaulting to the production RANCID path and `config/desired_state.tacacs_migration.json`):
+
+```bash
+./run_watchdog.sh /path/to/rancid/configs/ config/desired_state.tacacs_migration.json
+```
+
+Copy `config/desired_state.tacacs_migration.example.json` to `config/desired_state.tacacs_migration.json` (gitignored) and fill in the real new TACACS/syslog/NTP/SNMP-trap server IPs and the login-user keep-list before running against production. This offline mode only runs Phases 1, 2, and 5 (discover, build, report) — it never opens a device connection, so it's audit/report-only. Live deployment of the generated fix files still goes through the existing `discover` (live) → `deploy --live` path once you have real device access.
+
+Two desired-state fields exist specifically for a server-set migration like this one:
+
+- `login_users_keep`: a whitelist. Any login user discovered on the device that is **not** in this list gets a `delete system login user <name>` line (independent of the existing `login_users_to_delete` / `cleanup_old_login_users` explicit-list feature used by the dashboard, which is unchanged).
+- `snmp_trap_targets` / `snmp_trap_group`: the actual SNMP trap-destination IPs (as opposed to `snmp_communities`, which are the community strings). Cleanup is gated by the same `cleanup_old_snmp` flag as communities.
+- `radius_delete_lines` cleanup (`cleanup_old_radius`, on by default) already removes all discovered RADIUS server config — this project standardizes on TACACS+ only.
+
+## Running Constantly As A Service
+
+Streamlit isn't a WSGI app, so gunicorn doesn't apply — it ships its own server, started via `streamlit run` (that's what `run_server.sh` already does). To keep it running permanently on a Linux server, wrap `run_server.sh` in a systemd service instead:
+
+```bash
+sudo cp deploy/device-ems.service /etc/systemd/system/device-ems.service
+sudo nano /etc/systemd/system/device-ems.service   # set User= and WorkingDirectory= for your server
+sudo systemctl daemon-reload
+sudo systemctl enable --now device-ems
+sudo systemctl status device-ems
+```
+
+`Restart=always` brings it back after a crash or reboot. Logs are visible with `journalctl -u device-ems -f`. If you want a clean domain name and TLS instead of `http://SERVER_IP:8502`, put nginx in front as a reverse proxy to `127.0.0.1:8502` — that's a separate, optional step.
+
 ## Screenshots
 
 ![Dashboard overview](docs/screenshots/01-dashboard-overview.png)
@@ -143,6 +182,8 @@ py -3 -m venv .venv
 - `run_server.sh`: Linux server launcher using `.venv` and `0.0.0.0`.
 - `run_cli.sh`: Linux/WSL headless CLI launcher using `.venv`.
 - `run_dashboard.bat`: Windows launcher using `.venv`.
+- `run_watchdog.sh`: cron entry point for offline RANCID-folder discovery + report (no live device connections).
+- `config/desired_state.*.example.json`: placeholder desired-state files for CLI-driven change workflows; real filled-in copies are gitignored.
 - `.streamlit/config.toml`: dark operations-console theme.
 - `RELEASES.md`: running change notes.
 
@@ -162,6 +203,9 @@ py -3 -m venv .venv
 - Added a dark Streamlit theme that better matches the other public network tools.
 - Corrected visible app/report text to `Telemetry`.
 - Added release notes and pytest config.
+- Added `discover-rancid`: offline discovery from local RANCID-style Junos `display set` config dumps (no live SSH), for cron-driven audits.
+- Added `login_users_keep` (whitelist-based login-user cleanup) and `snmp_trap_targets`/`snmp_trap_group` (SNMP trap-destination migration) to desired state.
+- Added `run_watchdog.sh` as a cron entry point chaining offline discovery, build, and report.
 
 ## Adding A New Jinja Change Template
 

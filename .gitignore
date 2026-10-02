@@ -11,3 +11,5 @@ data/fix_files/*
 !data/runs/.gitkeep
 !data/reports/.gitkeep
 !data/fix_files/.gitkeep
+config/desired_state.*.json
+!config/desired_state.*.example.json

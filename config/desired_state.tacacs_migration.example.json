@@ -1,0 +1,20 @@
+{
+  "selected_templates": ["tacacs_users", "snmp_communities", "ntp_servers", "syslog_hosts"],
+  "tacacs_servers": ["REPLACE_WITH_NEW_TACACS_IP_1", "REPLACE_WITH_NEW_TACACS_IP_2"],
+  "tacacs_secret": "REPLACE_WITH_NEW_TACACS_SECRET",
+  "tacacs_timeout": 5,
+  "auth_order_tacacs_then_local": true,
+  "login_users_keep": ["REPLACE_WITH_NEW_LOGIN_USER_1", "REPLACE_WITH_NEW_LOGIN_USER_2"],
+  "ntp_servers": ["REPLACE_WITH_NEW_NTP_IP_1", "REPLACE_WITH_NEW_NTP_IP_2"],
+  "syslog_hosts": ["REPLACE_WITH_NEW_SYSLOG_IP_1", "REPLACE_WITH_NEW_SYSLOG_IP_2"],
+  "snmp_communities": ["REPLACE_WITH_NEW_SNMP_COMMUNITY"],
+  "snmp_authorization": "read-only",
+  "snmp_trap_group": "public",
+  "snmp_trap_targets": ["REPLACE_WITH_NEW_SNMP_IP_1", "REPLACE_WITH_NEW_SNMP_IP_2"],
+  "cleanup_old_tacacs": true,
+  "cleanup_old_radius": true,
+  "cleanup_old_login_users": false,
+  "cleanup_old_ntp": true,
+  "cleanup_old_syslog": true,
+  "cleanup_old_snmp": true
+}
