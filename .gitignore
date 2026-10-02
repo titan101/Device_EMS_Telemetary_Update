@@ -1,15 +1,29 @@
 venv/
 .venv/
 __pycache__/
-*.py[cod]
+*.pyc
 .pytest_cache/
+webapp_runs/
+
+# Test scaffolding stays local, not shipped in the repo
+tests/
+
+# Real device data -- NEVER commit these
+runs/
+captures/
+ledger.db
+
+# Error log -- can quote real hostnames/paths
 logs/
-data/credential_vault.json
-data/runs/*.json
-data/reports/*
-data/fix_files/*
-!data/runs/.gitkeep
-!data/reports/.gitkeep
-!data/fix_files/.gitkeep
-config/desired_state.*.json
-!config/desired_state.*.example.json
+
+# Real desired state, credentials and target lists -- only the *.example.* files ship
+config/*.json
+config/*.txt
+config/*.csv
+!config/*.example.*
+
+# Per-install preferences
+webapp_settings.json
+
+# Local tooling
+tools/

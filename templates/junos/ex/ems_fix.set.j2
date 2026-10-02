@@ -1,0 +1,157 @@
+{#
+  Juniper EX (3200 / 3300 / 3400) -- EMS standard
+
+  Differences from the MX template, on purpose:
+    - TACACS+ servers are plain per-server lines (secret / port / single-connection /
+      source-address under each server), no apply-group: the EX fleet never used one
+      and 12.x EX3200s are easier to read that way.
+    - No accounting block unless desired_state platforms.ex.tacacs.accounting sets one.
+    - Classes only if desired_state platforms.ex.login.classes lists any (the EX
+      standard uses the built-in super-user class).
+    - SNMP filter-interfaces / filter-duplicates only when the platform override asks.
+
+  Same variables as the MX template: d, existing, src, users_to_delete, uid_for().
+#}
+{# ---------------------------------------------------------------- TACACS+ -> ISE #}
+{% for server in existing.tacacs_servers if server not in d.tacacs.servers %}
+delete system tacplus-server {{ server }}
+{% endfor %}
+{% if existing.tacacs_group %}
+delete groups {{ existing.tacacs_group }} system tacplus-server
+{% endif %}
+{% for server in d.tacacs.servers %}
+delete system tacplus-server {{ server }}
+set system tacplus-server {{ server }} port {{ d.tacacs.port }}
+set system tacplus-server {{ server }} secret {{ d.tacacs.secret | q }}
+{% if d.tacacs.timeout %}
+set system tacplus-server {{ server }} timeout {{ d.tacacs.timeout }}
+{% endif %}
+{% if d.tacacs.single_connection %}
+set system tacplus-server {{ server }} single-connection
+{% endif %}
+{% if src.tacacs %}
+set system tacplus-server {{ server }} source-address {{ src.tacacs }}
+{% endif %}
+{% endfor %}
+delete system authentication-order
+{% for method in d.tacacs.authentication_order %}
+set system authentication-order {{ method }}
+{% endfor %}
+{% if d.tacacs.accounting %}
+delete system accounting
+{% for event in d.tacacs.accounting.events %}
+set system accounting events {{ event }}
+{% endfor %}
+set system accounting destination {{ d.tacacs.accounting.destination }}
+{% endif %}
+{% if d.radius.delete %}
+{% for server in existing.radius_servers %}
+delete system radius-server {{ server }}
+delete access radius-server {{ server }}
+{% endfor %}
+{% endif %}
+{# ---------------------------------------------------------------- login classes (optional on EX) #}
+{% for name, cls in d.login.classes.items() %}
+delete system login class {{ name }}
+{% if cls.idle_timeout %}
+set system login class {{ name }} idle-timeout {{ cls.idle_timeout }}
+{% endif %}
+{% for permission in cls.permissions %}
+set system login class {{ name }} permissions {{ permission }}
+{% endfor %}
+{% for regexp in cls.allow_commands %}
+set system login class {{ name }} allow-commands-regexps {{ regexp | q }}
+{% endfor %}
+{% for regexp in cls.deny_commands %}
+set system login class {{ name }} deny-commands-regexps {{ regexp | q }}
+{% endfor %}
+{% for regexp in cls.allow_configuration %}
+set system login class {{ name }} allow-configuration-regexps {{ regexp | q }}
+{% endfor %}
+{% for regexp in cls.deny_configuration %}
+set system login class {{ name }} deny-configuration-regexps {{ regexp | q }}
+{% endfor %}
+{% endfor %}
+{# ---------------------------------------------------------------- login users #}
+{% for name in users_to_delete %}
+delete system login user {{ name }}
+{% endfor %}
+{% for name, user in d.login.users.items() %}
+{% if uid_for(name) %}
+set system login user {{ name }} uid {{ uid_for(name) }}
+{% endif %}
+set system login user {{ name }} class {{ user.class }}
+{% if user.encrypted_password %}
+set system login user {{ name }} authentication encrypted-password {{ user.encrypted_password | q }}
+{% endif %}
+{% endfor %}
+{# ---------------------------------------------------------------- NTP #}
+{% if d.ntp.delete_other_servers %}
+{% for server in existing.ntp_servers if server not in d.ntp.servers %}
+delete system ntp server {{ server }}
+{% endfor %}
+{% endif %}
+{% for server in d.ntp.servers %}
+set system ntp server {{ server }}
+{% endfor %}
+{% if src.ntp %}
+delete system ntp source-address
+set system ntp source-address {{ src.ntp }}
+{% endif %}
+{# ---------------------------------------------------------------- syslog #}
+{% if d.syslog.delete_other_hosts %}
+{% for host in existing.syslog_hosts if host not in d.syslog.hosts %}
+delete system syslog host {{ host }}
+{% endfor %}
+{% endif %}
+{% for host, selectors in d.syslog.hosts.items() %}
+delete system syslog host {{ host }}
+{% for selector in selectors %}
+set system syslog host {{ host }} {{ selector }}
+{% endfor %}
+{% endfor %}
+{% if src.syslog %}
+delete system syslog source-address
+set system syslog source-address {{ src.syslog }}
+{% endif %}
+{# ---------------------------------------------------------------- SNMP #}
+{% if d.snmp.delete_other_communities %}
+{% for community in existing.snmp_communities if community not in d.snmp.communities %}
+delete snmp community {{ community }}
+{% endfor %}
+{% endif %}
+{% for name, community in d.snmp.communities.items() %}
+delete snmp community {{ name }}
+set snmp community {{ name }} authorization {{ community.authorization }}
+{% for client in community.clients %}
+set snmp community {{ name }} clients {{ client }}
+{% endfor %}
+{% endfor %}
+{% if d.snmp.trap_group %}
+delete snmp trap-group {{ d.snmp.trap_group.name }}
+set snmp trap-group {{ d.snmp.trap_group.name }} version {{ d.snmp.trap_group.version }}
+{% for category in d.snmp.trap_group.categories %}
+set snmp trap-group {{ d.snmp.trap_group.name }} categories {{ category }}
+{% endfor %}
+{% for target in d.snmp.trap_group.targets %}
+set snmp trap-group {{ d.snmp.trap_group.name }} targets {{ target }}
+{% endfor %}
+{% endif %}
+{% if src.snmp_trap %}
+delete snmp trap-options source-address
+set snmp trap-options source-address {{ src.snmp_trap }}
+{% endif %}
+{% if d.snmp.filter_interfaces %}
+set snmp filter-interfaces {{ d.snmp.filter_interfaces }}
+{% endif %}
+{% if d.snmp.filter_duplicates %}
+set snmp filter-duplicates
+{% endif %}
+{% if d.snmp.contact %}
+delete snmp contact
+set snmp contact {{ d.snmp.contact | q }}
+{% endif %}
+{% if d.snmp.location %}
+delete snmp location
+set snmp location {{ d.snmp.location | q }}
+{% endif %}

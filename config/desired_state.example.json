@@ -1,0 +1,120 @@
+{
+  "_comment": "Copy to desired_state.json (gitignored) and fill in every REPLACE_WITH value. Top-level sections apply to all platforms; platforms.<name> overrides them. 'auto' source-address = keep the device's current one, else fxp0 master-only (MX) / lo0 (EX).",
+
+  "cm_number": "",
+
+  "commit": {
+    "comment": "ISE_FIX_Script",
+    "confirmed_minutes": 20,
+    "confirm_delay_seconds": 20,
+    "timeout_seconds": 180
+  },
+
+  "tacacs": {
+    "servers": ["192.0.2.20", "198.51.100.20"],
+    "secret": "REPLACE_WITH_ISE_TACACS_SECRET",
+    "port": 49,
+    "single_connection": true,
+    "timeout": null,
+    "source_address": "auto",
+    "apply_group": "tacplus_servers",
+    "rotate_secret": true,
+    "authentication_order": ["tacplus"],
+    "accounting": {
+      "events": ["login", "change-log", "interactive-commands"],
+      "destination": "tacplus"
+    }
+  },
+
+  "radius": { "delete": true },
+
+  "login": {
+    "classes": {
+      "config-provision-ccf": {
+        "idle_timeout": 15,
+        "permissions": ["clear", "configure", "firewall-control", "interface-control", "maintenance", "network",
+                        "rollback", "routing-control", "security", "security-control", "view", "view-configuration"],
+        "deny_commands": ["start shell", "^request system|vmhost|chassis|session .*"],
+        "_deny_configuration_note": "verbatim from the fleet standard -- the trailing spaces are part of the regexps, keep them",
+        "deny_configuration": [
+          "firewall filter ((p|P)rotect|PROTECT)-.* ",
+          "firewall family .* filter ((p|P)rotect|PROTECT)-.* ",
+          "(chassis|forwarding-options|groups|vmhost) .* ",
+          "interfaces (fxp0|em0|me0|vme) .* ",
+          "interfaces lo0 unit 0 family . filter .* ",
+          "protocols (ldp|mpls|ospf|ospf3) .*"
+        ]
+      },
+      "ro-ccf": {
+        "idle_timeout": 30,
+        "permissions": ["admin", "field", "firewall", "interface", "network", "routing", "snmp", "trace",
+                        "view", "view-configuration"]
+      },
+      "super-user-ccf": { "idle_timeout": 30, "permissions": ["all"] },
+      "superuser-local": { "permissions": ["all"] }
+    },
+    "users": {
+      "remote":           { "uid": 2000, "class": "unauthorized" },
+      "remote-admin":     { "uid": 2001, "class": "super-user-ccf" },
+      "remote-operator":  { "uid": 2002, "class": "ro-ccf" },
+      "remote-provision": { "uid": 2003, "class": "config-provision-ccf" },
+      "ccf_cm_user":      { "class": "super-user-ccf", "encrypted_password": "REPLACE_WITH_$6$_HASH_OR_EMPTY" },
+      "zccfrancid":       { "class": "super-user-ccf", "encrypted_password": "" }
+    },
+    "delete_users": ["admin", "hvdmc", "rancid"],
+    "delete_unlisted_users": false,
+    "protect_users": ["root", "remote", "remote-admin", "remote-operator", "remote-provision"]
+  },
+
+  "ntp": { "servers": ["192.0.2.67", "198.51.100.35"], "source_address": "auto", "delete_other_servers": true },
+
+  "syslog": {
+    "hosts": { "192.0.2.78": ["any any"], "192.0.2.51": ["any any"] },
+    "source_address": "auto",
+    "delete_other_hosts": true
+  },
+
+  "snmp": {
+    "communities": {
+      "REPLACE_WITH_RO_COMMUNITY_1": { "authorization": "read-only", "clients": [] },
+      "REPLACE_WITH_RO_COMMUNITY_2": { "authorization": "read-only", "clients": [] }
+    },
+    "delete_other_communities": true,
+    "trap_group": {
+      "name": "public",
+      "version": "v2",
+      "categories": ["authentication", "chassis", "link", "remote-operations", "routing", "startup",
+                     "configuration", "services"],
+      "targets": ["203.0.113.26", "203.0.113.36"]
+    },
+    "trap_source_address": "auto",
+    "filter_interfaces": "all-internal-interfaces",
+    "filter_duplicates": true,
+    "contact": "",
+    "location": "",
+    "managers": []
+  },
+
+  "platforms": {
+    "mx": {},
+    "acx": {},
+    "ex": {
+      "tacacs": { "apply_group": "", "accounting": null },
+      "login": {
+        "classes": {},
+        "users": {
+          "ccf_cm_user": { "class": "super-user", "encrypted_password": "REPLACE_WITH_$6$_HASH_OR_EMPTY" },
+          "zccfrancid":  { "class": "super-user", "encrypted_password": "" }
+        }
+      },
+      "snmp": { "filter_interfaces": "", "filter_duplicates": false,
+                "trap_group": { "categories": ["authentication", "chassis", "link", "routing", "startup",
+                                               "configuration", "services"] } }
+    },
+    "srx": {
+      "tacacs": { "apply_group": "", "accounting": null },
+      "login": { "classes": {}, "users": { "ccf_cm_user": { "class": "super-user", "encrypted_password": "" } } },
+      "snmp": { "filter_interfaces": "", "filter_duplicates": false }
+    }
+  }
+}

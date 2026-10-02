@@ -1,0 +1,7 @@
+# One device per line: hostname or management address. Optional ",platform"
+# (mx | acx | ex | srx) overrides what `show version` reports -- needed only for
+# offline RANCID builds where the model can't be read. Blank lines and # ignored.
+example-pe01
+example-pe02.corp.example
+192.0.2.10,ex
+example-sw03,srx

@@ -1,0 +1,11 @@
+{#
+  Juniper SRX -- EMS standard
+
+  UNVALIDATED: no real SRX configuration has been reviewed. The `system` hierarchy
+  (tacplus-server, login, ntp, syslog) and `snmp` are the same as on EX, so this
+  starts as the EX shape. What an SRX adds on its own and this file does NOT touch:
+  `security zones <zone> host-inbound-traffic system-services {ssh,snmp,ntp}` --
+  new NMS / NTP / TACACS sources may need those, check by hand after the first
+  rehearsal. Diverge this file from the EX one as soon as a real SRX diff says so.
+#}
+{% include "junos/ex/ems_fix.set.j2" %}
