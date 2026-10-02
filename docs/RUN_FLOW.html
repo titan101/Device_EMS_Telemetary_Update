@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Device EMS Update -- run flow</title>
+<style>
+:root{--bg:#0c0f16;--ink:#080a10;--panel:#141925;--panel2:#1c2333;--line:#2a3345;--line2:#3a4660;--text:#eef1f7;--muted:#98a2b8;
+--brand:#ffb454;--old:#ff7b72;--new:#7ee787;--red:#ff5c5c;--amber:#ffb454;--purple:#8b7cff;--mono:ui-monospace,"Cascadia Mono",Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.45}
+main{max-width:1240px;margin:0 auto;padding:30px 20px 60px}
+h1{font-size:26px;margin:0 0 6px}
+h1::after{content:"";display:block;width:56px;height:3px;margin-top:8px;border-radius:2px;background:linear-gradient(90deg,var(--brand),var(--old))}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:34px 0 12px}
+p.lead{color:var(--muted);max-width:900px}
+.lane{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:stretch}
+.step{position:relative;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--amber);border-radius:10px;padding:18px 12px 12px;font-size:13px}
+.step .n{position:absolute;top:-10px;left:10px;background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:1px 7px;font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--brand)}
+.step b{display:block;font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:4px}
+.step small{display:block;color:var(--muted)}
+.step code{display:block;margin-top:6px;font-family:var(--mono);font-size:11px;color:var(--brand);word-break:break-all}
+.step.read{border-left-color:var(--purple)} .step.read .n{color:var(--purple)}
+.step.live{border-left-color:var(--red)} .step.live .n{color:var(--red)}
+.step.good{border-left-color:var(--new)} .step.good .n{color:var(--new)}
+.step.stop{border-left-color:var(--old)} .step.stop .n{color:var(--old)}
+.arrow{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:20px}
+.branch{display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:10px}
+.note{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--muted);margin-top:10px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:14px}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.legend .r::before{background:var(--purple)} .legend .l::before{background:var(--red)} .legend .g::before{background:var(--new)} .legend .s::before{background:var(--old)} .legend .a::before{background:var(--amber)}
+.files{font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--ink);border:1px solid var(--line);border-radius:8px;padding:12px 14px;white-space:pre}
+</style></head><body><main>
+<h1>Device EMS Update -- run flow</h1>
+<p class="lead">TACACS+ to ISE, login classes/users, accounting, NTP, syslog, SNMP. One device or the fleet. The box always has a way back: a <code style="color:var(--brand)">commit confirmed</code> timer, and a second login that has to succeed through the new AAA before the change is kept.</p>
+<div class="legend"><span class="r">read-only session</span><span class="l">changes the device</span><span class="g">done</span><span class="s">stop / needs a human</span><span class="a">no device contact</span></div>
+
+<h2>0. Once per rollout</h2>
+<div class="lane">
+<div class="step"><span class="n">A</span><b>desired_state.json</b><small>The standard: ISE servers + secret, classes, users, NTP, syslog, SNMP. Per-platform overrides for EX/SRX.</small><code>cli.py check</code></div>
+<div class="arrow">&rarr;</div>
+<div class="step"><span class="n">B</span><b>credentials.json</b><small>jlogin's own account first, then static local users in order. Confirm ladder = the ISE account only.</small><code>chmod 600</code></div>
+<div class="arrow">&rarr;</div>
+<div class="step"><span class="n">C</span><b>new RUN</b><small>Targets pasted or uploaded, named after the CM.</small><code>cli.py new CM1 --file targets.txt</code></div>
+<div class="arrow">&rarr;</div>
+<div class="step"><span class="n">D</span><b>rehearse</b><small>From RANCID: every fix file, verify list and exact rollback, nothing contacted. Read the diffs.</small><code>cli.py rehearse CM1 --rancid-folder ...</code></div>
+</div>
+
+<h2>1-5. Every device, up to N in parallel (resumable)</h2>
+<div class="lane">
+<div class="step read"><span class="n">1</span><b>discover</b><small>show version + display-set of system / groups / snmp / lo0 / fxp0. Ladder: default, then local users.</small><code>devices/&lt;h&gt;/before_&lt;h&gt;.txt</code></div>
+<div class="arrow">&rarr;</div>
+<div class="step"><span class="n">2</span><b>build</b><small>Template rendered as exact-state, minimised to what differs. Zero lines = COMPLIANT, stop.</small><code>01_&lt;h&gt;_ems_fix.txt</code></div>
+<div class="arrow">&rarr;</div>
+<div class="step live"><span class="n">3</span><b>deploy</b><small>configure exclusive / lines / show | compare / <b style="display:inline">commit confirmed N</b>. Same credential that got in.</small><code>logs/&lt;ts&gt;_&lt;h&gt;_commit.log</code></div>
+<div class="arrow">&rarr;</div>
+<div class="step live"><span class="n">4</span><b>confirm</b><small>NEW login through the confirm ladder. Verify shows (structural match), then <b style="display:inline">commit comment ISE_FIX_Script</b>.</small><code>logs/&lt;ts&gt;_&lt;h&gt;_confirm.log</code></div>
+</div>
+<div class="branch">
+<div class="step good"><span class="n">4 ok</span><b>CONFIRMED</b><small>Login worked through ISE and every expected line is on the box. Ledger row moves; the device is skipped on any re-run.</small></div>
+<div class="step stop"><span class="n">4 failed</span><b>ROLLBACK PENDING</b><small>Login refused, or lines missing: nothing committed. The box reverts itself at +N min. Left alone until then.</small><code>cli.py recheck CM1 --live --wait</code></div>
+</div>
+<div class="lane" style="margin-top:10px">
+<div class="step read"><span class="n">5</span><b>recheck</b><small>After the timer, failures only: is the old config back?</small></div>
+<div class="arrow">&rarr;</div>
+<div class="step good"><span class="n">5 ok</span><b>ROLLED BACK</b><small>Old lines verified. Fix the cause (ISE reachability, secret, source-address) and run the box again.</small></div>
+<div class="arrow">&rarr;</div>
+<div class="step stop"><span class="n">5 !</span><b>STILL APPLIED / UNKNOWN</b><small>The new config did not revert, or neither set of lines matches. A human opens the log.</small></div>
+</div>
+<div class="note">Every step writes its record to <b style="font-family:var(--mono)">runs/&lt;run&gt;/status.json</b> before the next one starts (re-read, overlay, tmp + replace). A second <b style="font-family:var(--mono)">fix</b> skips confirmed and compliant boxes; <b style="font-family:var(--mono)">--redo</b> repeats them. Ctrl-C never starts a queued device; an open session is recorded as outcome unknown.</div>
+
+<h2>After the window</h2>
+<div class="lane">
+<div class="step"><span class="n">E</span><b>status / CSV</b><small>Board per run; CSV for the ticket.</small><code>cli.py status CM1 --csv board.csv</code></div>
+<div class="arrow">&rarr;</div>
+<div class="step"><span class="n">F</span><b>MOP</b><small>Scope, pre-checks, every device's lines, verify, back-out.</small><code>MOP_CM1.md / .html</code></div>
+<div class="arrow">&rarr;</div>
+<div class="step"><span class="n">G</span><b>ledger</b><small>Fleet view across runs: which of the 500 are done.</small><code>cli.py ledger --export fleet.csv</code></div>
+</div>
+
+<h2>Two rules the whole flow rests on</h2>
+<div class="branch">
+<div class="step"><b>Nothing reaches a device unless asked twice</b><small>CLI: <span style="font-family:var(--mono)">--live</span> opens sessions, and <span style="font-family:var(--mono)">--yes</span> is what runs instead of printing the plan. Console: type LIVE to arm, tick "for real" on the action, and the ISE fix shows its plan first. jlogin's exit code is never trusted -- every transcript gets a verdict.</small></div>
+<div class="step"><b>Every fix file carries its own exact rollback</b><small>Not an inversion of the new lines: the device's own pre-change lines, restored object by object. The timer is the first line of defence; the rollback block is for after a confirm.</small></div>
+</div>
+
+<h2>Files</h2>
+<div class="files">runs/&lt;run&gt;/targets.txt  run.json  status.json
+runs/&lt;run&gt;/devices/&lt;host&gt;/01_&lt;host&gt;_ems_fix.txt      header / config / # --- Verify --- / # --- Rollback ---
+runs/&lt;run&gt;/devices/&lt;host&gt;/before_&lt;host&gt;.txt          discovery transcript or RANCID dump
+runs/&lt;run&gt;/devices/&lt;host&gt;/logs/&lt;ts&gt;_&lt;host&gt;_&lt;action&gt;.cmd / .log
+runs/&lt;run&gt;/MOP_&lt;run&gt;.md  .html  board_&lt;run&gt;.csv
+ledger.db   logs/errors.log</div>
+</main></body></html>

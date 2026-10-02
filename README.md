@@ -1,282 +1,204 @@
-# Device EMS Telemetry Update
+# Device EMS Update
 
-Dashboard, headless CLI, and automation framework for Juniper EMS and telemetry changes. The current change templates support validated EX and MX workflows for SNMP communities, TACACS servers, RADIUS cleanup, syslog hosts, NETCONF, LLDP, and NTP servers. PTX devices can be discovered and reported, but config build is intentionally blocked until PTX templates are validated against real configurations.
+Brings the management plane of every Juniper router and switch to one standard --
+TACACS+ servers (the move to ISE), authentication order, login classes and users,
+accounting, NTP, syslog and SNMP -- on one device or five hundred, with a
+self-reverting commit and a second login that proves the new AAA works before
+anything is made permanent.
 
-> Repository note: the GitHub repository and Python package still use `Telemetary` in their names for compatibility with existing clones. The app UI and docs use the correct `Telemetry` spelling.
+Two tools live in this folder:
 
-## Beginner Quick Start
+| | **Device EMS Console** (current) | Legacy Streamlit app |
+|---|---|---|
+| Entry points | `./run_webapp.sh` / `run_webapp.bat` (console on :5460), `cli.py` | `./run.sh`, `./run_server.sh`, `run_dashboard.bat` (:8502), `./run_cli.sh` |
+| Device access | **jlogin** (`-x` command files), like the HotCut console | PyEZ / Netmiko / SNMP |
+| Credentials | `~/.cloginrc` first, then a ladder of static local users for boxes whose TACACS is already dead | encrypted vault, one profile per login |
+| Change | one platform template per device family (MX+ACX, EX, SRX) rendered as exact-state, then minimised to what differs | five small per-topic templates |
+| Commit | `commit confirmed N` + a **second login through the new AAA** that verifies and confirms; a failed login lets the box revert itself | `commit confirmed` + an audit login |
+| Bulk | parallel, resumable per-device records, skip-done, Ctrl-C safe, fleet ledger | sequential phases per change-id |
+| Rollback | exact restore of the pre-change lines in every fix file | none generated |
+| Offline | rehearse from a RANCID folder, MOP + CSV per run | discover-rancid report |
+| Python deps | flask, jinja2 | streamlit, pandas, junos-eznc, netmiko, pysnmp, cryptography |
 
-You do not need admin rights for the normal launcher. Each launcher creates a local `.venv` folder inside this project and installs the Python requirements there.
+The legacy app is untouched (`app.py`, `device_ems_telemetary_update/`,
+`templates/junos/change_templates/`, `requirements.txt`, its `.venv`) so the two can
+be compared side by side. Everything below is about the console.
 
-### Linux Server
+## Quick start
 
 ```bash
-git clone https://github.com/titan101/Device_EMS_Telemetary_Update.git
+git clone <this repo>
 cd Device_EMS_Telemetary_Update
-chmod +x run.sh run_server.sh
-./run_server.sh
+./setup.sh                                   # venv + requirements-console.txt
+cp config/desired_state.example.json config/desired_state.json    # fill in the standard
+cp config/credentials.example.json  config/credentials.json && chmod 600 config/credentials.json
+venv/bin/python cli.py check                 # jlogin, credentials, desired state in order?
+./run_webapp.sh                              # http://127.0.0.1:5460
 ```
 
-Open:
+Windows: `run_webapp.bat`. The console binds 127.0.0.1 only and starts in **DRY RUN**.
 
-```text
-http://SERVER_IP:8502
+## The fix, device by device
+
+```
+1 DISCOVER   jlogin, read-only   show version + display-set of system / groups / snmp / lo0 / fxp0
+             ladder: jlogin default (.cloginrc) -> static local users in order
+2 BUILD      no device           platform template -> 01_<host>_ems_fix.txt, minimised:
+                                 lines the box already has are dropped; nothing left = COMPLIANT
+3 DEPLOY     same credential     configure exclusive / lines / show | compare /
+                                 commit confirmed <N> comment ISE_FIX_Script_PENDING
+4 CONFIRM    CONFIRM ladder      a NEW login (by default only the jlogin/ISE account):
+   (+delay)                      verify shows, then commit comment ISE_FIX_Script and-quit
+                                 login fails or verification fails -> nothing committed,
+                                 the box reverts itself at +N min  (ROLLBACK PENDING)
+5 RECHECK    after the timer     only for the failures: is the old config back?
+                                 ROLLED BACK (fix by hand) / still applied (needs a human)
 ```
 
-### Laptop Or WSL
+Why the second login: the deploy session got in with whatever worked (old TACACS or
+a local account). Logging in again *through the new servers* is the only proof the
+change didn't lock the fleet out. If that login can't happen the device must revert
+on its own, so the confirm ladder does not fall back to local accounts unless you put
+one in `confirm_order` yourself.
+
+## Command line
 
 ```bash
-./run.sh
+cli.py check
+cli.py new CM12345 --file targets.txt --cm CM12345      # or --targets pe01,pe02
+cli.py rehearse CM12345 --rancid-folder /mnt/.../configs  # files only, nothing contacted
+cli.py fix CM12345 --live                                 # prints the plan
+cli.py fix CM12345 --live --yes                           # runs it; resumable
+cli.py fix CM12345 --live --yes --devices pe07 --redo     # one box again
+cli.py recheck CM12345 --live --yes --wait                # after the timers
+cli.py status CM12345 [--csv board.csv]
+cli.py mop CM12345                                        # MOP_<run>.md + .html
+cli.py preview --config-file some_dump.txt [--platform ex]  # the fix file one dump gets
+cli.py ledger [--state rollback_pending] [--export fleet.csv]
+cli.py hash-password                                      # $6$ hash for a local user
 ```
 
-Open:
+`targets.txt`: one device per line, optional `,ex` / `,srx` / `,mx` when the platform
+can't be read from the box (offline RANCID builds). `--workers` 1-10 (default 8).
 
-```text
-http://127.0.0.1:8502
+Nothing reaches a device without `--live`; `--live` without `--yes` only prints the plan.
+
+## Desired state (`config/desired_state.json`)
+
+One file describes the standard. Top-level sections apply to every platform;
+`platforms.ex` / `platforms.srx` / `platforms.acx` override them. A mapping such as
+`classes`, `users`, `communities` or `hosts` in an override *replaces* the base one;
+scalars and lists replace; other objects merge. `"auto"` for a source-address keeps the
+device's current one, else uses the fxp0 master-only address (MX) or lo0 (EX); if
+neither exists the line is omitted and the fix file says so.
+
+Sections: `commit` (comment, confirmed_minutes, confirm_delay_seconds, timeout_seconds),
+`tacacs` (servers, secret, port, single_connection, source_address, apply_group,
+rotate_secret, authentication_order, accounting), `radius.delete`, `login` (classes,
+users, delete_users, delete_unlisted_users, protect_users), `ntp`, `syslog`, `snmp`
+(communities, trap_group, trap_source_address, filter_interfaces, filter_duplicates,
+contact, location, managers).
+
+Rules the builder enforces whatever the file says:
+
+- `root`, the `remote*` template users and any user on the credential ladder are never
+  deleted.
+- A user's `uid` is kept from the box when the file doesn't give one.
+- `rotate_secret: true` (default) re-sends the TACACS block on every box even when the
+  servers already match -- that is how a new ISE secret gets everywhere. Set it to
+  false afterwards and compliant boxes stay untouched.
+- `snmp.managers` are checked against the box's prefix-lists; a poller that no
+  prefix-list covers while lo0 carries a protect filter is a WARNING in the fix file.
+- A desired-state value still reading `REPLACE_WITH...` blocks every build.
+
+## Credentials (`config/credentials.json`, 0600, never committed)
+
+```json
+{
+  "jlogin_default": true,
+  "local_users": [ {"label": "ccf_cm_user", "username": "ccf_cm_user", "password": "..."} ],
+  "discover_order": ["jlogin-default", "ccf_cm_user"],
+  "confirm_order": ["jlogin-default"]
+}
 ```
 
-### Windows
+`jlogin-default` is whatever `~/.cloginrc` holds. A static user is handed to jlogin
+through a throw-away cloginrc file (`-f`, mode 0600, deleted after the session), never
+on the command line. The ladder moves to the next credential only on an auth /
+no-session verdict; unreachable, rejected, or a committing session that timed out
+ends it, because retrying could re-send a commit.
 
-```bat
-cd Device_EMS_Telemetary_Update
-run_dashboard.bat
+## Templates
+
+`templates/junos/mx/ems_fix.set.j2` (MX and ACX), `templates/junos/ex/ems_fix.set.j2`,
+`templates/junos/srx/ems_fix.set.j2` (starts as the EX shape, flagged UNVALIDATED until
+a real SRX diff has been read). Written as exact-state -- an object is deleted and set
+in full -- so they read like config. The builder then drops every object the box
+already has, every `set` already present and every `delete` of something absent.
+`templates/iosxr/asr9k/` and `templates/saos/ciena/` hold notes for the next platforms.
+
+## What a run leaves behind
+
+```
+runs/<run>/
+  targets.txt  run.json  status.json          per-device records, written after every step
+  devices/<host>/01_<host>_ems_fix.txt        header, config, # --- Verify ---, # --- Rollback ---
+  devices/<host>/before_<host>.txt            the discovery transcript / RANCID dump
+  devices/<host>/logs/<ts>_<host>_<action>.cmd / .log    exactly what was sent, and the answer
+  MOP_<run>.md / .html   board_<run>.csv
+ledger.db                                     fleet view across runs (cli.py ledger, console Ledger)
+logs/errors.log                               every non-zero exit and unhandled exception
 ```
 
-The dashboard starts on `http://localhost:8502`.
+Every session log starts with `# Verdict: ...`. jlogin's exit code is never trusted --
+RANCID login scripts exit 0 after `Error: Couldn't login` -- so the verdict is read
+from the transcript:
 
-## Server Options
+| verdict | the transcript showed | what happens |
+|---|---|---|
+| `dns` | the name doesn't resolve (checked before the session too) | nothing sent; fix resolution or use the address |
+| `unreachable` | refused / timed out / no route | nothing sent; ladder stops |
+| `auth` | permission denied, password refused | next credential; all refused = nothing sent |
+| `no-session` | `Couldn't login`, EOF, empty transcript, no prompt | next credential |
+| `rejected` | a Junos `error:` line, check-out or commit failed | the whole commit was aborted |
+| `timeout` | no answer within the timeout | for a commit: check the box, the timer reverts it |
+| `ok` | `commit complete` **and** the "will be automatically rolled back" line (deploy); a prompt (read-only) | -- |
 
-Change the listen port without editing code:
+A device whose confirm failed is **ROLLBACK PENDING** with its due time; `fix` leaves it
+alone until the timer has expired, `recheck` then proves the old config is back.
+
+## Console
+
+Dark shell, same family as the HotCut console. Pages: Console (fleet counts, the six
+steps, recent runs), Runs / New run (paste or upload targets), Run (device board with
+*Select not done / failed / rollback pending*, Rehearse, Discover, Build, **Run ISE
+fix**, Recheck, MOP, CSV, live output), Desired state (JSON editor with validation and a
+per-platform summary), Credentials (ladders, masked; edits write the file 0600),
+Templates, Ledger, Errors, Manual, Settings (theme, default RANCID folder, workers).
+
+Safety: the console starts disarmed; arming means typing `LIVE`; a restart disarms;
+live buttons appear only when armed; the ISE fix shows its plan first and runs on the
+second click with its own "for real" tick; POSTs are Origin/Referer-checked; downloads
+are path-contained under `runs/`.
+
+## Local rehearsal without a device
+
+`captures/fake_jlogin.py` answers `show configuration` from a folder of dumps and
+"applies" commits, so the whole flow can be run on a laptop:
 
 ```bash
-DEVICE_EMS_PORT=8602 ./run_server.sh
+export JLOGIN_BIN=$PWD/captures/fake_jlogin.sh FAKE_RANCID=/path/to/dumps EMS_SKIP_DNS_CHECK=1
+export FAKE_LOCAL_ONLY=sw01 FAKE_CONFIRM_FAIL=pe02      # exercise the ladder and a rollback
+venv/bin/python cli.py fix TEST --live --yes --delay 0
 ```
 
-Manual venv run:
+## Tests
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-streamlit run app.py --server.address 0.0.0.0 --server.port 8502 --server.headless true
+venv/bin/python -m pytest tests/ -q
 ```
 
-If Python cannot create `.venv`, ask your server admin for Python venv support. On Ubuntu that package is usually `python3-venv`.
+## Design
 
-## Headless CLI
-
-Use the CLI for server automation or change workflows that do not need Streamlit. On Linux or WSL, `run_cli.sh` creates the same project-local `.venv` and installs the requirements:
-
-```bash
-chmod +x run_cli.sh
-./run_cli.sh --help
-./run_cli.sh templates
-```
-
-A typical change workflow is:
-
-```bash
-# Add an encrypted credential profile. Passwords and the vault passphrase are prompted securely.
-./run_cli.sh creds-add --label primary --username netops --role primary
-
-# Create the run and inspect or update its desired state.
-./run_cli.sh targets CHG12345 --file targets.txt
-./run_cli.sh desired-show CHG12345 > desired.json
-./run_cli.sh desired-set CHG12345 --file desired.json
-
-# Discover, build, review with a no-connect dry run, and generate reports.
-./run_cli.sh discover CHG12345
-./run_cli.sh build CHG12345
-./run_cli.sh deploy CHG12345
-./run_cli.sh report CHG12345
-
-# Live deployment requires both --live and an exact change-ID confirmation.
-./run_cli.sh deploy CHG12345 --live --confirm CHG12345
-./run_cli.sh audit CHG12345 --confirm-commit
-```
-
-Use `--targets device1,device2` with `discover`, `build`, `deploy`, or `audit` to operate on a subset. Commands that unlock the credential vault prompt for its passphrase by default; `--passphrase-env ENV_VAR` is available for controlled non-interactive automation.
-
-On Windows, create the environment and invoke the same module directly:
-
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m device_ems_telemetary_update.cli --help
-```
-
-## RANCID / Offline Watchdog Discovery
-
-For periodic audits (e.g. a weekly cron job ahead of a TACACS/syslog/NTP/SNMP server migration) you often don't want to open 400 live SSH sessions just to see what's currently configured. `discover-rancid` parses local Junos `show configuration | display set` text dumps instead — the same format RANCID stores, one file per router, named after the router's hostname:
-
-```bash
-./run_cli.sh discover-rancid WATCHDOG-20260702 --folder /path/to/rancid/configs/ --platform mx
-./run_cli.sh desired-set WATCHDOG-20260702 --file config/desired_state.tacacs_migration.json
-./run_cli.sh build WATCHDOG-20260702
-./run_cli.sh report WATCHDOG-20260702
-```
-
-`run_watchdog.sh` wraps this exact sequence for cron (`RANCID folder` and `desired-state file` as optional positional args, defaulting to the production RANCID path and `config/desired_state.tacacs_migration.json`):
-
-```bash
-./run_watchdog.sh /path/to/rancid/configs/ config/desired_state.tacacs_migration.json
-```
-
-Copy `config/desired_state.tacacs_migration.example.json` to `config/desired_state.tacacs_migration.json` (gitignored) and fill in the real new TACACS/syslog/NTP/SNMP-trap server IPs and the login-user keep-list before running against production. This offline mode only runs Phases 1, 2, and 5 (discover, build, report) — it never opens a device connection, so it's audit/report-only. Live deployment of the generated fix files still goes through the existing `discover` (live) → `deploy --live` path once you have real device access.
-
-Two desired-state fields exist specifically for a server-set migration like this one:
-
-- `login_users_keep`: a whitelist. Any login user discovered on the device that is **not** in this list gets a `delete system login user <name>` line (independent of the existing `login_users_to_delete` / `cleanup_old_login_users` explicit-list feature used by the dashboard, which is unchanged).
-- `snmp_trap_targets` / `snmp_trap_group`: the actual SNMP trap-destination IPs (as opposed to `snmp_communities`, which are the community strings). Cleanup is gated by the same `cleanup_old_snmp` flag as communities.
-- `radius_delete_lines` cleanup (`cleanup_old_radius`, on by default) already removes all discovered RADIUS server config — this project standardizes on TACACS+ only.
-
-## Running Constantly As A Service
-
-Streamlit isn't a WSGI app, so gunicorn doesn't apply — it ships its own server, started via `streamlit run` (that's what `run_server.sh` already does). To keep it running permanently on a Linux server, wrap `run_server.sh` in a systemd service instead:
-
-```bash
-sudo cp deploy/device-ems.service /etc/systemd/system/device-ems.service
-sudo nano /etc/systemd/system/device-ems.service   # set User= and WorkingDirectory= for your server
-sudo systemctl daemon-reload
-sudo systemctl enable --now device-ems
-sudo systemctl status device-ems
-```
-
-`Restart=always` brings it back after a crash or reboot. Logs are visible with `journalctl -u device-ems -f`. If you want a clean domain name and TLS instead of `http://SERVER_IP:8502`, put nginx in front as a reverse proxy to `127.0.0.1:8502` — that's a separate, optional step.
-
-## Screenshots
-
-![Dashboard overview](docs/screenshots/01-dashboard-overview.png)
-
-![Target intake](docs/screenshots/02-target-intake.png)
-
-![Desired state](docs/screenshots/03-desired-state.png)
-
-![Deploy safety controls](docs/screenshots/04-deploy-safety.png)
-
-## Workflow
-
-1. Credentials: unlock or create an encrypted local credential vault. Profiles can be `primary`, `secondary`, or `audit`.
-2. Targets: enter a change number and paste device names or IPs.
-3. Desired State: select the Jinja change templates, then enter TACACS, NTP, syslog, SNMP, NETCONF, LLDP, cleanup options, commit-confirm minutes, audit wait time, and worker count.
-4. Phase 1 Discovery: ping first, then log in with the stored credential profiles. PyEZ is tried first; Netmiko is the SSH CLI fallback for devices that do not yet have NETCONF enabled.
-5. Phase 2 Build: generate per-device Junos `set` and `delete` configuration from the device model, version, and discovered existing config. A reviewable fix file is written under `data/fix_files/<change>/`.
-6. Phase 3 Deploy: dry run is selected by default. Live deploy uses the built per-device fix lines, requires two checkboxes and typing the change number, and uses `commit confirmed <minutes>`.
-7. Phase 4 Audit: waits the configured seconds, logs back in, and can confirm the pending commit after a successful audit login.
-8. Phase 5 Reports: writes CSV, JSON, and management Markdown files under `data/reports`.
-9. Logs: shows run-level and per-device console logs for discovery, build, deploy, and audit.
-
-## Architecture
-
-- `app.py`: Streamlit dashboard and UI styling.
-- `device_ems_telemetary_update/models.py`: run, device, credential, and desired-state models.
-- `device_ems_telemetary_update/adapters/junos.py`: Junos discovery, deploy, and audit driver.
-- `device_ems_telemetary_update/template_engine.py`: model-aware Jinja template catalog and rendering.
-- `device_ems_telemetary_update/cli.py`: headless command interface for the full change workflow.
-- `templates/junos/change_templates/*.set.j2`: selectable Junos change templates by EMS domain.
-- `templates/junos/_archive/*.set.j2`: inactive legacy platform templates kept as migration references.
-- `data/runs`: persisted run state per change number.
-- `data/reports`: generated reporting artifacts.
-- `data/fix_files`: generated per-device fix files.
-- `run.sh`: local Linux/WSL launcher using `.venv`.
-- `run_server.sh`: Linux server launcher using `.venv` and `0.0.0.0`.
-- `run_cli.sh`: Linux/WSL headless CLI launcher using `.venv`.
-- `run_dashboard.bat`: Windows launcher using `.venv`.
-- `run_watchdog.sh`: cron entry point for offline RANCID-folder discovery + report (no live device connections).
-- `config/desired_state.*.example.json`: placeholder desired-state files for CLI-driven change workflows; real filled-in copies are gitignored.
-- `.streamlit/config.toml`: dark operations-console theme.
-- `RELEASES.md`: running change notes.
-
-## What Was Updated
-
-- Added selectable Jinja change templates for TACACS/login users, SNMP, NTP, syslog, and NETCONF/LLDP.
-- Added per-device-type template matching through template metadata.
-- Added a headless CLI for credentials, targets, desired state, discovery, build, deploy, audit, status, and reports.
-- Added per-device fix-file generation under `data/fix_files`.
-- Added optional SNMP sysDescr discovery fallback for model/version identification.
-- Added an explicit unsupported-platform guard so PTX config is not generated before validation.
-- Added a Logs tab for run and per-device console output.
-- Added explicit legacy login-user cleanup support.
-- Added discovery/reporting for existing Junos login users.
-- Added Linux/server launchers so a regular user can clone and run the app from a work server.
-- Standardized dependency isolation on `.venv`.
-- Added a dark Streamlit theme that better matches the other public network tools.
-- Corrected visible app/report text to `Telemetry`.
-- Added release notes and pytest config.
-- Added `discover-rancid`: offline discovery from local RANCID-style Junos `display set` config dumps (no live SSH), for cron-driven audits.
-- Added `login_users_keep` (whitelist-based login-user cleanup) and `snmp_trap_targets`/`snmp_trap_group` (SNMP trap-destination migration) to desired state.
-- Added `run_watchdog.sh` as a cron entry point chaining offline discovery, build, and report.
-
-## Adding A New Jinja Change Template
-
-Create a new file under `templates/junos/change_templates` with a `.set.j2` suffix:
-
-```text
-templates/junos/change_templates/my_new_change.set.j2
-```
-
-Put metadata comments at the top so the UI can list it:
-
-```jinja
-# id: my_new_change
-# label: My New Change
-# description: What this template changes.
-# platforms: ex,mx
-# device_types: ex340024p,ex
-```
-
-Then add normal Junos `set` or `delete` lines with Jinja variables such as:
-
-```jinja
-{% for server in desired.ntp_servers %}
-set system ntp server {{ server }}
-{% endfor %}
-```
-
-Restart the app. The new template appears in the **Jinja change templates** selector.
-
-`platforms` matches normalized Junos platform families such as `ex` and `mx`. `device_types` is optional; when present, it limits the template to normalized exact-model or family keys discovered from PyEZ facts, `show version`, or SNMP sysDescr. Examples: `ex340024p`, `ex`, `mx480`, and `mx`. Add `ptx` only after the template has been validated against a real PTX configuration sample.
-
-## BMU/Kiroku Strategy Applied
-
-The BMU/Kiroku pattern that fits this app is: discover device identity, build one job artifact per device, execute batches concurrently, and expose run status/logs to the engineer. This app keeps that strategy local and lightweight:
-
-- Discovery uses PyEZ facts or Netmiko `show version`; optional SNMP sysDescr can identify model/version when CLI discovery is not available.
-- Device model/type controls which selected Jinja templates are eligible for each device.
-- Phase 2 writes per-device fix files that include deletes and adds for review.
-- Phase 3 deploys those generated lines only when live deployment is explicitly armed.
-- Discovery, deploy, and audit use worker threads controlled by **Parallel workers**.
-- The Logs tab shows the operator what happened per phase and per device.
-
-## Safety Defaults
-
-- Deployment is dry run by default.
-- The shipped change templates support EX and MX; PTX build stops with `build_unsupported_platform` pending validation.
-- Live deploy is locked unless both approvals are checked and the change number is typed exactly.
-- Live Junos deployment uses a commit-confirm timer, defaulting to 30 minutes.
-- Audit can confirm the pending commit only after a successful login.
-- Credential profiles are encrypted at rest with a local passphrase-derived Fernet key.
-- Runtime run-state, report, fix-file, and vault artifacts stay under ignored `data/` paths and are not committed to Git.
-
-## Research Notes
-
-The implementation follows common network automation patterns from Junos PyEZ, Netmiko, and Nornir-style inventory/workflow separation:
-
-- Juniper PyEZ supports candidate configuration load, diff, commit check, and confirmed commits.
-- Netmiko provides a practical SSH CLI fallback for Junos devices where NETCONF is not already available.
-- Nornir-style separation of inventory, task execution, and vendor adapters is reflected in the workflow and adapter modules without forcing a full Nornir inventory on day one.
-
-## Validation
-
-```bash
-. .venv/bin/activate
-python -m pytest
-python -m compileall app.py device_ems_telemetary_update
-```
-
-## Notes For Later Expansion
-
-- Add `adapters/saos.py` for Ciena SAOS once command and commit semantics are defined.
-- Add model-specific templates for special EX/VC, MX, and PTX protection-filter cases.
-- Add CSV import and export for target lists.
-- Add optional `commit check` dry-run mode that opens a candidate session but rolls back before commit.
+`docs/DESIGN.md` is the blueprint (sequence, safety model, layout, desired-state
+schema, how to add a platform). `docs/RUN_FLOW.html` is the run-flow diagram.
