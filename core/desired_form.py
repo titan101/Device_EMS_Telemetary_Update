@@ -14,7 +14,7 @@ from typing import Any
 from .desired import DEFAULTS, DesiredState, REPLACE_KEYS, _merge
 
 BASE_PLATFORM = "mx"
-PLATFORMS = ("mx", "ex", "srx", "acx")
+PLATFORMS = ("mx", "ex", "srx", "acx", "mrv")
 SECRET_UNCHANGED = "__unchanged__"
 
 
@@ -134,7 +134,7 @@ def form_to_sections(form, current: dict) -> dict:
     if form.get("accounting_enabled"):
         accounting = {"events": _lines(form.get("accounting_events", "")) or ["login", "change-log", "interactive-commands"],
                       "destination": form.get("accounting_destination", "tacplus").strip() or "tacplus"}
-    d["tacacs"] = {"servers": _lines(form.get("tacacs_servers", "")), "secret": secret,
+    d["tacacs"] = {**current["tacacs"], "servers": _lines(form.get("tacacs_servers", "")), "secret": secret,
                    "port": _int_or_none(form.get("tacacs_port")) or 49,
                    "single_connection": bool(form.get("single_connection")),
                    "timeout": _int_or_none(form.get("tacacs_timeout")),
@@ -153,7 +153,7 @@ def form_to_sections(form, current: dict) -> dict:
     d["syslog"] = {"hosts": parse_syslog(form.get("syslog_hosts", "")), "source_address": _source(form.get("syslog_source", "auto")),
                    "delete_other_hosts": bool(form.get("syslog_delete_others"))}
     trap_targets = _lines(form.get("trap_targets", ""))
-    d["snmp"] = {"communities": parse_communities(form.get("communities", "")),
+    d["snmp"] = {**current["snmp"], "communities": parse_communities(form.get("communities", "")),
                  "delete_other_communities": bool(form.get("snmp_delete_others")),
                  "trap_group": ({"name": form.get("trap_group_name", "public").strip() or "public",
                                  "version": form.get("trap_version", "v2").strip() or "v2",

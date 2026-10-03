@@ -29,6 +29,19 @@ jlogin simulator:
   request (copy in My_Production_Sample_Configs/.../original_scripts/); the
   Windows launcher is `run_dashboard.bat` (opens the browser once the port answers).
 
+## MRV (added 2026-10-03)
+
+Built against the production captures (OptiSwitch 9244, MasterOS 2_2_2G) and the
+simulator only -- no real MRV touched. Open points: (a) SNMP `community <idx> <access>
+default <string>` -- the tool reuses an existing index and assigns new strings from 40 up;
+confirm that matches the NOC's convention; (b) `rotate_secret` is off for MRV, so a new ISE
+key is only written where a host is missing -- turn it on deliberately; (c) the running
+config shows the TACACS key in some encoded form, so the rollback restores that line
+verbatim and may not reproduce a working key if the key itself was changed; (d) the
+config-mode prompt is assumed to be `HOST(config)#` -- never seen in a capture; the
+verdict does not depend on it. ADVA: profile exists (`clogin -noenable`), nothing else --
+needs one capture of a real config change (set ... through the save) before anything is built.
+
 ## What is NOT done / needs Varun
 
 1. **Real-device rehearsal.** Nothing has touched a real router. First real use:

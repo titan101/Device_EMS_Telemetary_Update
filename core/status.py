@@ -116,6 +116,8 @@ def _state_from(live: dict) -> tuple[str, str]:
             detail += f" -- TACACS was down on this box, got in as {got_in}"
         return state, detail
     if deploy:
+        if deploy.get("verdict") == "ok" and deploy.get("staged"):
+            return ST_PENDING_CONFIRM, "applied but NOT saved -- the confirm login must pass, or roll it back"
         if deploy.get("verdict") == "ok":
             return ST_PENDING_CONFIRM, f"commit confirmed, rollback due {deploy.get('rollback_due_at', '?')}"
         return ST_FAILED, f"deploy: {deploy.get('reason') or deploy.get('verdict')}"
@@ -138,12 +140,17 @@ def _confirm_state(confirm: dict) -> tuple[str, str]:
     verdict = confirm.get("verdict")
     if verdict == "ok":
         return ST_CONFIRMED, f"confirmed via {confirm.get('credential', '?')}"
+    if confirm.get("staged"):
+        return ST_ROLLBACK_PENDING, (f"confirm failed ({confirm.get('reason') or verdict}) -- the box still runs "
+                                     "the UNSAVED change: run recheck to roll it back")
     return ST_ROLLBACK_PENDING, (f"confirm failed ({confirm.get('reason') or verdict}) -- device "
                                  f"reverts at {confirm.get('rollback_due_at', '?')}")
 
 
 def _recheck_state(recheck: dict) -> tuple[str, str]:
     verdict = recheck.get("verdict")
+    if verdict == "ok" and recheck.get("staged"):
+        return ST_ROLLED_BACK, "rolled back by the tool -- old statements restored, nothing was ever saved; fix the cause and run again"
     if verdict == "ok":
         return ST_ROLLED_BACK, "rolled back -- old config verified on the box, fix by hand"
     if verdict == "too-early":

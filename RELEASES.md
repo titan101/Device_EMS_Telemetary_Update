@@ -1,5 +1,12 @@
 # Releases
 
+## 2026-10-03 - MRV OptiSwitch support (staged commit model)
+
+- New platform profiles (`core/platforms.py`): Junos via `jlogin`, MRV via `clogin`, ADVA declared but not built.
+- MRV: running-config parser, CLI template, additive deploy without `write memory`, confirm session that verifies the running-config block by block, removes the old TACACS hosts and saves, active rollback on a failed confirm.
+- Fix files gained `# --- Finalize ---` and `# expect:` / `# absent:` lines; the simulator speaks MRV.
+- Target lists, `cli.py new --platform` and the New run page take a platform for MRV/ADVA lists.
+
 ## 2026-10-03 - Console only; shipped defaults
 
 - Desired state is a form now: per-platform tabs (MX base, EX/SRX/ACX differences), server/secret/SNMP fields, user and class rows, set-command preview; raw JSON under Advanced with the secret masked.

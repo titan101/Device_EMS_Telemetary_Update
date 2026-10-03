@@ -13,7 +13,7 @@ RUN_FILE = "run.json"
 TARGETS_FILE = "targets.txt"
 _SAFE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _DEVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
-PLATFORMS = ("mx", "acx", "ex", "srx")
+PLATFORMS = ("mx", "acx", "ex", "srx", "mrv", "adva")
 
 
 class RunError(RuntimeError):

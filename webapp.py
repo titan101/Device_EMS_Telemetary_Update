@@ -408,6 +408,8 @@ NEW_RUN_HTML = _page("New run", """
 <div class="field"><label>CM / ticket</label><input type="text" name="cm" value="{{ values.cm }}"></div>
 <div class="field"><label>Devices</label><textarea name="targets" rows="12" placeholder="example-pe01&#10;example-pe02&#10;192.0.2.10,ex">{{ values.targets }}</textarea></div>
 <div class="field"><label>...or upload a list (txt/csv, one device per line)</label><input type="file" name="file"></div>
+<div class="field"><label>Platform of these devices <span class="muted">(Junos boxes are read from `show version`; MRV and ADVA need to be told, because a different login script reaches them)</span></label>
+<select name="platform"><option value="">Juniper (auto: MX / EX / SRX / ACX)</option><option value="mrv">MRV OptiSwitch</option><option value="adva">ADVA XG480 (not built yet)</option><option value="ex">Juniper EX (force)</option><option value="mx">Juniper MX (force)</option></select></div>
 <div class="field"><label>Note</label><input type="text" name="note" value="{{ values.note }}"></div>
 <p style="margin-top:14px"><button class="primary" type="submit">Create run</button></p>
 </form></section>
@@ -725,6 +727,9 @@ def new_run():
             text = upload.read().decode("utf-8", "replace")
         try:
             devices, hints = runs.parse_targets(text)
+            chosen = request.form.get("platform", "").strip().lower()
+            if chosen in runs.PLATFORMS:
+                hints = {**{d: chosen for d in devices}, **hints}
             run_id = runs.safe_run_id(values["run"])
             runs.create_run(cli.RUNS_ROOT, run_id, devices, hints, cm_number=values["cm"], note=values["note"])
             ledger.record_run(ledger.connect(cli.LEDGER_PATH), run_id, datetime.now().isoformat(timespec="seconds"),
@@ -912,6 +917,10 @@ def desired_page():
 
 def _preview_lines(platform: str, state: desired.DesiredState) -> str:
     try:
+        if platform == "mrv":
+            from core import mrv_builder
+            lines = mrv_builder.minimise(mrv_builder.render(ExistingConfig(), state.for_platform("mrv")), ExistingConfig(), True)
+            return "\n".join(mrv_builder.mask_key(l) for l in lines)
         lines, _ = builder.render(platform, ExistingConfig(), state.for_platform(platform), [])
         lines = builder.minimise(lines, ExistingConfig(), rotate_secret=True)   # pure sets: nothing to delete on an empty box
     except Exception as exc:  # noqa: BLE001 -- shown to the operator, not raised

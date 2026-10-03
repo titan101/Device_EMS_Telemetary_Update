@@ -23,6 +23,7 @@ DEFAULTS: dict[str, Any] = {
     "tacacs": {"servers": [], "secret": "", "port": 49, "single_connection": True, "timeout": None,
                "source_address": "auto", "apply_group": "tacplus_servers", "rotate_secret": True,
                "authentication_order": ["tacplus"],
+               "authen_method": "", "aaa_lines": [],
                "accounting": {"events": ["login", "change-log", "interactive-commands"], "destination": "tacplus"}},
     "radius": {"delete": True},
     "login": {"classes": {}, "users": {}, "delete_users": [], "delete_unlisted_users": False,
@@ -31,7 +32,7 @@ DEFAULTS: dict[str, Any] = {
     "syslog": {"hosts": {}, "source_address": "auto", "delete_other_hosts": True},
     "snmp": {"communities": {}, "delete_other_communities": True, "trap_group": None,
              "trap_source_address": "auto", "filter_interfaces": "", "filter_duplicates": False,
-             "contact": "", "location": "", "managers": []},
+             "contact": "", "location": "", "managers": [], "mrv_trap_community": "public"},
     "platforms": {},
 }
 
@@ -91,6 +92,7 @@ def _normalise(d: dict[str, Any]) -> None:
     tac = d["tacacs"]
     tac["servers"] = [str(s) for s in tac.get("servers") or []]
     tac["authentication_order"] = [str(s) for s in tac.get("authentication_order") or ["tacplus"]]
+    tac["aaa_lines"] = [str(s) for s in tac.get("aaa_lines") or []]
     login = d["login"]
     for name, cls in (login.get("classes") or {}).items():
         for key in ("permissions", "deny_commands", "allow_commands", "deny_configuration", "allow_configuration"):
@@ -144,7 +146,7 @@ def validate_text(text: str) -> tuple[DesiredState | None, str]:
     """For the console editor: (state, "") or (None, error)."""
     try:
         state = DesiredState(json.loads(text))
-        for platform in ("mx", "ex", "srx"):
+        for platform in ("mx", "ex", "srx", "mrv"):
             state.for_platform(platform)
     except (ValueError, DesiredError) as exc:
         return None, str(exc)

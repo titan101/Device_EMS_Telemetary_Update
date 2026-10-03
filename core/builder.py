@@ -14,6 +14,9 @@ from .models import BuildResult, DeviceFacts, ExistingConfig
 
 SECTION_MARKER = "# --- "
 VERIFY_HEADER = "# --- Verify ---"
+FINALIZE_HEADER = "# --- Finalize (sent by the confirm session, after the new AAA login is proven) ---"
+EXPECT_PREFIX = "# expect: "
+ABSENT_PREFIX = "# absent: "
 ROLLBACK_HEADER = "# --- Rollback (restores the pre-change lines -- the commit-confirmed timer is the first line of defence) ---"
 PURPOSE = "EMS standard -- TACACS+ to ISE, login classes/users, accounting, NTP, syslog, SNMP"
 
@@ -269,7 +272,8 @@ def render_file(result: BuildResult, facts: DeviceFacts, run_id: str, cm_number:
                 before_source: str) -> str:
     parts = [
         f"# Device: {facts.device}" + (f" ({facts.hostname})" if facts.hostname and facts.hostname != facts.device else ""),
-        f"# Platform: {result.platform} ({facts.model or 'model unknown'}, Junos {facts.version or '?'}) -- "
+        f"# Platform: {result.platform} ({facts.model or 'model unknown'}, "
+        f"{'MasterOS' if result.platform == 'mrv' else 'Junos'} {facts.version or '?'}) -- "
         f"template {tpl.template_path(result.platform)}",
         f"# Run: {run_id}" + (f"   CM: {cm_number}" if cm_number else ""),
         f"# Generated: {datetime.now().isoformat(timespec='seconds')}",
@@ -283,20 +287,26 @@ def render_file(result: BuildResult, facts: DeviceFacts, run_id: str, cm_number:
         parts += ["# COMPLIANT -- the box already matches the standard, nothing to send.", ""]
     else:
         parts += result.config_lines
+    if result.finalize_lines:
+        parts += ["", FINALIZE_HEADER, *result.finalize_lines]
     parts += ["", VERIFY_HEADER, *result.verify_commands]
+    parts += [EXPECT_PREFIX + s for s in result.expected_statements]
+    parts += [ABSENT_PREFIX + s for s in result.forbidden_paths if result.expected_statements]
     if result.rollback_lines:
         parts += ["", ROLLBACK_HEADER, *result.rollback_lines]
     return "\n".join(parts) + "\n"
 
 
 def config_lines_from_file(path: Path) -> list[str]:
+    """Config section only. Junos lines are stripped; IOS-like block children keep their
+    one-space indent (it is what tells a `community` line from a top-level one)."""
     lines: list[str] = []
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw.strip()
-        if line.startswith(SECTION_MARKER):
+        line = raw.rstrip()
+        if line.strip().startswith(SECTION_MARKER):
             break
-        if line and not line.startswith("#"):
-            lines.append(line)
+        if line.strip() and not line.strip().startswith("#"):
+            lines.append(line if line.startswith(" ") and not line.strip().startswith(("set ", "delete ")) else line.strip())
     return lines
 
 
@@ -317,14 +327,43 @@ def rollback_lines_from_file(path: Path) -> list[str]:
     lines: list[str] = []
     in_rollback = False
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw.strip()
-        if line.startswith(SECTION_MARKER):
-            in_rollback = line.startswith("# --- Rollback")
+        line = raw.rstrip()
+        if line.strip().startswith(SECTION_MARKER):
+            in_rollback = line.strip().startswith("# --- Rollback")
             continue
-        if in_rollback and line and not line.startswith("#"):
-            lines.append(line)
+        if in_rollback and line.strip() and not line.strip().startswith("#"):
+            lines.append(line if line.startswith(" ") and not line.strip().startswith(("set ", "delete ")) else line.strip())
     return lines
 
 
 def fingerprint(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
+def finalize_lines_from_file(path: Path) -> list[str]:
+    return _section_lines(path, "# --- Finalize")
+
+
+def expectations_from_file(path: Path) -> tuple[list[str], list[str]]:
+    """('block|statement' expected, absent) recorded under Verify by a staged-platform build."""
+    expected, absent = [], []
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if line.startswith(EXPECT_PREFIX):
+            expected.append(line[len(EXPECT_PREFIX):])
+        elif line.startswith(ABSENT_PREFIX):
+            absent.append(line[len(ABSENT_PREFIX):])
+    return expected, absent
+
+
+def _section_lines(path: Path, header_prefix: str) -> list[str]:
+    lines: list[str] = []
+    inside = False
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.rstrip()
+        if line.strip().startswith(SECTION_MARKER):
+            inside = line.strip().startswith(header_prefix)
+            continue
+        if inside and line.strip() and not line.strip().startswith("#"):
+            lines.append(line)
+    return lines

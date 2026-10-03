@@ -77,3 +77,31 @@ def check_rollback(transcript: str, config_lines: list[str], rollback_lines: lis
     if not old_sets and new_present == 0:
         return "ok"
     return "unknown"
+
+
+# --------------------------------------------------------------------------- IOS-like (MRV)
+def _split_statement(entry: str) -> tuple[str, str]:
+    block, _, statement = entry.partition("|") if "|" in entry else ("", "", entry)
+    return block, statement
+
+
+def _statement_present(block: str, statement: str, blocks: dict[str, list[str]], top: list[str]) -> bool:
+    pool = blocks.get(block, []) if block else top
+    if " key " in statement:
+        head = statement.split(" key ", 1)[0] + " key "
+        return any(l.startswith(head) for l in pool)
+    return statement in pool or any(l.startswith(statement + " ") for l in pool)
+
+
+def check_statements(transcript: str, expected: list[str], forbidden: list[str]) -> VerifyResult:
+    """For running-config platforms: every expected 'block|statement' present, every forbidden absent."""
+    from . import mrv_parser
+    lines = mrv_parser.config_lines(transcript)
+    blocks = mrv_parser.blocks(lines)
+    top = [l.strip() for l in lines if not l.startswith((" ", "	"))]
+    if not lines:
+        return VerifyResult(passed=False, missing=list(expected), still_present=[], checked=len(expected) + len(forbidden))
+    missing = [e for e in expected if not _statement_present(*_split_statement(e), blocks, top)]
+    present = [f for f in forbidden if _statement_present(*_split_statement(f), blocks, top)]
+    return VerifyResult(passed=not missing and not present, missing=missing, still_present=present,
+                        checked=len(expected) + len(forbidden))

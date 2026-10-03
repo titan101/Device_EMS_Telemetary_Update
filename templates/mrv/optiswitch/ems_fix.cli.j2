@@ -1,0 +1,82 @@
+{#
+  MRV OptiSwitch (MasterOS 2.x) -- EMS standard
+
+  IOS-like CLI, sent inside `configure terminal` ... `end`. A block (aaa / ntp / snmp)
+  is its header line, its children indented by ONE space, then `exit`. The builder
+  drops children the box already has and empty blocks, and splits the result in two:
+    deploy    everything additive (new TACACS hosts next to the old ones, NTP, syslog,
+              SNMP, aaa) -- applied without `write memory`
+    finalize  `no tacacs-server host <old>` -- sent by the confirm session, after the
+              login through ISE has proven the new servers work, right before the save
+  Lines starting with `no ` are removals; `tacacs-server host ... key` lines carry the
+  secret (masked in logs and previews).
+
+  Variables:  d (desired for platform mrv), existing (parsed running-config),
+              community_index(name): the box's existing index for that community string,
+              else the next free one from 40 up (fleet convention). MRV syntax is
+              `community <index> <access> default <community-string>`.
+#}
+{# ---------------------------------------------------------------- TACACS+ -> ISE (additive) #}
+{% for server in d.tacacs.servers if server not in existing.tacacs_servers or d.tacacs.rotate_secret %}
+tacacs-server host {{ server }} key {{ d.tacacs.secret }}
+{% endfor %}
+{% if d.tacacs.authen_method %}
+tacacs-server authen-method {{ d.tacacs.authen_method }}
+{% endif %}
+{% if d.tacacs.aaa_lines %}
+aaa
+{% for line in d.tacacs.aaa_lines %}
+ {{ line }}
+{% endfor %}
+exit
+{% endif %}
+{# ---------------------------------------------------------------- NTP #}
+{% if d.ntp.servers %}
+ntp
+{% if d.ntp.delete_other_servers %}
+{% for server in existing.ntp_servers if server not in d.ntp.servers %}
+ no server {{ server }}
+{% endfor %}
+{% endif %}
+{% for server in d.ntp.servers %}
+ server {{ server }}
+{% endfor %}
+ enable
+exit
+{% endif %}
+{# ---------------------------------------------------------------- syslog #}
+{% if d.syslog.delete_other_hosts %}
+{% for host in existing.syslog_hosts if host not in d.syslog.hosts %}
+no rsyslog {{ host }}
+{% endfor %}
+{% endif %}
+{% for host in d.syslog.hosts %}
+rsyslog {{ host }}
+{% endfor %}
+{# ---------------------------------------------------------------- SNMP #}
+{% if d.snmp.communities or d.snmp.trap_group %}
+snmp
+{% if d.snmp.delete_other_communities %}
+{% for name in existing.snmp_communities if name not in d.snmp.communities %}
+ no community {{ existing.snmp_community_ids[name] }}
+{% endfor %}
+{% endif %}
+{% for name, community in d.snmp.communities.items() %}
+ community {{ community_index(name) }} {{ community.authorization }} default {{ name }}
+{% endfor %}
+{% if d.snmp.trap_group %}
+{% for target in existing.snmp_trap_groups.get('trapsess', {}).get('targets', []) if target not in d.snmp.trap_group.targets %}
+ no trapsess {{ target }}
+{% endfor %}
+{% for target in d.snmp.trap_group.targets %}
+ trapsess {{ target }} 2 {{ d.snmp.mrv_trap_community }}
+{% endfor %}
+{% endif %}
+{% if d.snmp.contact %}
+ contact {{ d.snmp.contact }}
+{% endif %}
+{% if d.snmp.location %}
+ location {{ d.snmp.location }}
+{% endif %}
+exit
+{% endif %}

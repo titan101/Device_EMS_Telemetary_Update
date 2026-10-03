@@ -52,11 +52,45 @@ change didn't lock the fleet out. If that login can't happen the device must rev
 on its own, so the confirm ladder does not fall back to local accounts unless you put
 one in `confirm_order` yourself.
 
+## Platforms
+
+| platform | reached with | commit model | template |
+|---|---|---|---|
+| Juniper MX, ACX | `jlogin` | `commit confirmed` + second login confirms; the box reverts itself | `templates/junos/mx/` |
+| Juniper EX 3200/3300/3400 | `jlogin` | same | `templates/junos/ex/` |
+| Juniper SRX | `jlogin` | same -- template UNVALIDATED (no real SRX reviewed) | `templates/junos/srx/` |
+| MRV OptiSwitch (MasterOS 2.x) | `clogin` | **staged**: applied unsaved -> second login verifies -> old servers out -> `write memory`; a failed confirm is undone by `recheck` | `templates/mrv/optiswitch/` |
+| ADVA FSP150-XG480 | `clogin -noenable` / `jlogin` | not built: reachable, but no save/rollback command confirmed on a real box | -- |
+
+Junos boxes are identified from their own `show version`. MRV and ADVA use a different
+login script, so they have to be declared: `,mrv` after the name in the target list,
+`cli.py new RUN --platform mrv`, or the platform selector on the console's New run page.
+
+### MRV: how the staged model works
+
+MRV has no `commit confirmed`, so the safety is in the order of operations:
+
+```
+deploy    no cli-paging / enable / configure terminal / <additive lines> / end / exit
+          new TACACS hosts go in NEXT TO the old ones; NTP, syslog, SNMP, aaa as needed; NO write memory
+confirm   new login through ISE: show running-config (verify) / configure terminal /
+          no tacacs-server host <old> / end / write memory / show running-config (verify again)
+recheck   only after a failed confirm: logs in with the ladder, re-applies the pre-change
+          statements (the startup config was never saved), verifies the new ones are gone
+```
+
+The fix file carries a `# --- Finalize ---` section (what the confirm session sends) and
+`# expect:` / `# absent:` lines (the block-aware checks against the running-config).
+`rotate_secret` is **false** for MRV by default: a working `key` is not rewritten unless you
+ask. MRV's `community` statement is `community <index> <access> default <community-string>`:
+the tool keeps a community string's existing index and gives a new string the lowest free
+index from 40 up. The trap community is `public` (platform setting `snmp.mrv_trap_community`).
+
 ## Command line
 
 ```bash
 cli.py check
-cli.py new CM12345 --file targets.txt --cm CM12345      # or --targets pe01,pe02
+cli.py new CM12345 --file targets.txt --cm CM12345      # or --targets pe01,pe02 ; --platform mrv for MRV lists
 cli.py rehearse CM12345 --rancid-folder /mnt/.../configs  # files only, nothing contacted
 cli.py fix CM12345 --live                                 # prints the plan
 cli.py fix CM12345 --live --yes                           # runs it; resumable
@@ -70,7 +104,7 @@ cli.py hash-password                                      # $6$ hash for a local
 ```
 
 `targets.txt`: one device per line, optional `,ex` / `,srx` / `,mx` when the platform
-can't be read from the box (offline RANCID builds). `--workers` 1-10 (default 8).
+can't be read from the box (offline RANCID builds), `,mrv` / `,adva` always for those vendors. `--workers` 1-10 (default 8).
 
 Nothing reaches a device without `--live`; `--live` without `--yes` only prints the plan.
 

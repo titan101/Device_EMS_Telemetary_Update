@@ -120,8 +120,7 @@ def write_temp_cloginrc(directory: Path, cred: Credential) -> Path:
     path = directory / f".cloginrc_{cred.label}_{os.getpid()}"
     body = (f"add user * {{{cred.username}}}\n"
             f"add password * {{{cred.password}}} {{{cred.password}}}\n"
-            "add method * {ssh}\n"
-            "add autoenable * {1}\n")
+            "add method * {ssh}\n")   # no autoenable: clogin runs `enable` itself on MRV; jlogin ignores it
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(body)

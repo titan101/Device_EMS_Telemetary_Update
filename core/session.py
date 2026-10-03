@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .credentials import Credential, write_temp_cloginrc
+from .platforms import CONFIRMED, Profile, profile as platform_profile
 
 SNAPSHOT = "snapshot"       # show commands only
 SHOWCOMPARE = "showcompare"  # load config, show | compare, rollback 0
@@ -126,9 +127,11 @@ def build_command_file(action: str, config_lines: list[str] | None = None,
 
 
 def classify(output: str, exit_code: int | None, timed_out: bool, action: str,
-             timeout: int) -> tuple[str, str]:
+             timeout: int, prof: Profile | None = None) -> tuple[str, str]:
     if timed_out:
         return TIMEOUT, f"no answer within {timeout}s"
+    if prof is not None and not prof.is_junos:
+        return _classify_cli(output, exit_code, action, prof)
     for verdict, pattern in _TRANSCRIPT_PATTERNS:
         m = pattern.search(output)
         if m:
@@ -144,6 +147,30 @@ def classify(output: str, exit_code: int | None, timed_out: bool, action: str,
         return FAILED, "commit went through but Junos never armed the rollback timer -- check the box"
     if action in (SHOWCOMPARE, SNAPSHOT) and not _PROMPT_RE.search(output):
         return NO_SESSION, "no Junos prompt in the transcript -- the CLI was never reached"
+    return OK, ""
+
+
+def _classify_cli(output: str, exit_code: int | None, action: str, prof: Profile) -> tuple[str, str]:
+    """IOS-like boxes (MRV): no commit message to look for -- OK means the enable prompt was
+    reached and the box printed no `%` error after any of our lines."""
+    for verdict, pattern in _TRANSCRIPT_PATTERNS[:4]:   # dns / unreachable / auth / no-session
+        m = pattern.search(output)
+        if m:
+            line = next((l.strip() for l in output.splitlines() if m.group(0) in l), m.group(0))
+            return verdict, line[:160]
+    if prof.error_re is not None:
+        m = prof.error_re.search(output)
+        if m:
+            line = next((l.strip() for l in output.splitlines() if m.group(0).strip() in l), m.group(0))
+            return REJECTED, line[:160]
+    if exit_code not in (0, None):
+        return FAILED, f"{prof.login_binary} exit {exit_code}"
+    if not output.strip():
+        return NO_SESSION, f"{prof.login_binary} returned nothing -- the session never reached the device"
+    if not prof.prompt_re.search(output):
+        return NO_SESSION, "no CLI prompt in the transcript -- the device was never reached"
+    if action in (COMMIT, CONFIRM, ROLLBACK) and not re.search(r"^[\w.-]+#", output, re.M):
+        return FAILED, "the enable prompt was never reached -- nothing was configured"
     return OK, ""
 
 
@@ -267,17 +294,24 @@ def stage(log_dir: Path, device: str, action: str, command_text: str,
     return command_path, base
 
 
-def _argv(command_path: Path, device: str, cloginrc: Path | None) -> list[str]:
-    argv = [jlogin_binary()]
+def login_binary_for(prof: Profile | None) -> str:
+    """jlogin for Junos (JLOGIN_BIN override), the profile's script otherwise (CLOGIN_BIN override)."""
+    if prof is None or prof.is_junos:
+        return jlogin_binary()
+    return os.environ.get("CLOGIN_BIN", os.environ.get("JLOGIN_BIN_ALL", prof.login_binary))
+
+
+def _argv(command_path: Path, device: str, cloginrc: Path | None, prof: Profile | None = None) -> list[str]:
+    argv = [login_binary_for(prof), *(prof.login_args if prof is not None else ())]
     if cloginrc is not None:
         argv += ["-f", str(cloginrc)]
     return argv + ["-x", str(command_path), device]
 
 
 def rehearse(device: str, command_path: Path, log_dir: Path, base: str, timeout: int = DEFAULT_TIMEOUT,
-             ladder: list[str] | None = None) -> SessionResult:
+             ladder: list[str] | None = None, prof: Profile | None = None) -> SessionResult:
     log_path = log_dir / f"{base}.log"
-    would_run = " ".join(_argv(command_path, device, None))
+    would_run = " ".join(_argv(command_path, device, None, prof))
     body = (f"# DRY RUN -- no session was opened, {device} was not contacted.\n"
             f"# Would have run: {would_run}\n"
             f"# Credential ladder: {', '.join(ladder or ['jlogin-default'])}\n"
@@ -328,11 +362,11 @@ def _run_process(argv: list[str], timeout: int) -> tuple[str, int | None, bool]:
 
 
 def _attempt(device: str, command_path: Path, log_path: Path, action: str, timeout: int,
-             cred: Credential, cred_dir: Path) -> SessionResult:
+             cred: Credential, cred_dir: Path, prof: Profile | None = None) -> SessionResult:
     cloginrc = None if cred.is_default else write_temp_cloginrc(cred_dir, cred)
     started = datetime.now().isoformat(timespec="seconds")
     try:
-        argv = _argv(command_path, device, cloginrc)
+        argv = _argv(command_path, device, cloginrc, prof)
         output, exit_code, timed_out = _run_process(argv, timeout)
     finally:
         if cloginrc is not None:
@@ -340,7 +374,7 @@ def _attempt(device: str, command_path: Path, log_path: Path, action: str, timeo
                 cloginrc.unlink()
             except OSError:
                 pass
-    verdict, reason = classify(output, exit_code, timed_out, action, timeout)
+    verdict, reason = classify(output, exit_code, timed_out, action, timeout, prof)
     shown = [a if a != str(cloginrc) else "<cloginrc>" for a in argv]
     result_line = f"TIMEOUT after {timeout}s" if timed_out else f"exit {exit_code}"
     header = (f"# {' '.join(shown)}\n# Credential: {cred.label}\n# Started: {started}\n"
@@ -352,23 +386,24 @@ def _attempt(device: str, command_path: Path, log_path: Path, action: str, timeo
 
 
 def run(device: str, command_path: Path, log_dir: Path, base: str, ladder: list[Credential],
-        timeout: int = DEFAULT_TIMEOUT, cred_dir: Path | None = None) -> SessionResult:
+        timeout: int = DEFAULT_TIMEOUT, cred_dir: Path | None = None, prof: Profile | None = None) -> SessionResult:
     """Try each credential in order until one reaches the device.
 
     Moves to the next credential only on auth / no-session. Anything else --
     the box answered (ok/rejected/failed), it's unreachable, or a commit
     timed out -- ends the ladder, because retrying could re-send a commit.
     """
-    if shutil.which(jlogin_binary()) is None:
-        raise SessionError(f"{jlogin_binary()} not found on this host -- device access needs the box "
-                           "that has jlogin and the RANCID mount. Build and rehearse work anywhere.")
+    binary = login_binary_for(prof)
+    if shutil.which(binary) is None:
+        raise SessionError(f"{binary} not found on this host -- device access needs the box "
+                           "that has the RANCID login scripts. Build and rehearse work anywhere.")
     if not ladder:
         raise SessionError("empty credential ladder")
     action = base.rsplit("_", 1)[-1]
     first_log = log_dir / f"{base}.log"
     blocked = preflight(device)
     if blocked:
-        first_log.write_text(f"# {jlogin_binary()} -x {command_path.name} {device}\n# Result: not run -- {blocked}\n"
+        first_log.write_text(f"# {binary} -x {command_path.name} {device}\n# Result: not run -- {blocked}\n"
                              f"# Verdict: {DNS} -- {blocked}\n# No session was opened.\n", encoding="utf-8")
         return SessionResult(action=action, device=device, command_path=command_path, log_path=first_log,
                              verdict=DNS, reason=blocked, advice=advice(DNS, device, action, timeout))
@@ -377,7 +412,7 @@ def run(device: str, command_path: Path, log_dir: Path, base: str, ladder: list[
     result: SessionResult | None = None
     for index, cred in enumerate(ladder):
         log_path = first_log if index == 0 else log_dir / f"{base}__{index}_{cred.label}.log"
-        result = _attempt(device, command_path, log_path, action, timeout, cred, cred_dir)
+        result = _attempt(device, command_path, log_path, action, timeout, cred, cred_dir, prof)
         attempts.append({"credential": cred.label, "verdict": result.verdict, "reason": result.reason,
                          "log": log_path.name})
         if result.verdict not in RETRY_NEXT_CREDENTIAL:

@@ -43,6 +43,29 @@ change didn't lock the fleet out. If that login can't happen, the device must
 revert on its own -- so the confirm ladder does not fall back to local accounts
 unless the operator explicitly allows it (`confirm_order` in credentials.json).
 
+## 2b. Platform profiles and the two commit models
+
+`core/platforms.py` holds one profile per platform: login script (`jlogin` for Junos,
+`clogin` for MRV, `clogin -noenable` for ADVA), command-file wrappers, prompt/error
+patterns and the commit model.
+
+- **confirmed** (Junos): `commit confirmed N`, the second login confirms, the box reverts
+  itself on failure. Recheck is passive (did it revert?).
+- **staged** (MRV): no candidate config. deploy applies the additive lines WITHOUT saving;
+  confirm logs in through the new AAA, verifies the running-config block by block, sends
+  the `# --- Finalize ---` lines (old TACACS hosts out), `write memory`, verifies again.
+  A failed confirm leaves an unsaved change on the box: recheck is ACTIVE -- it logs in
+  with the discovery ladder, re-applies the rollback block, verifies the new statements
+  are gone.
+
+MRV specifics: IOS-like text (`core/mrv_parser.py`), block children indented one space,
+`exit` closes a block, removals are `no <statement>`; `core/mrv_builder.py` renders,
+minimises against the running-config, splits deploy/finalize and derives `expect`/`absent`
+statements. The real fleet (MasterOS 2_2_2G) already points at the ISE pair with per-host
+keys, has no local users (`authentication login default tacacs+ local`), one `rsyslog`,
+an `ntp` block, and `snmp` with `community <index> read-only default <community-string>`
+(index 40 on the fleet) and `trapsess <ip> 2 public`.
+
 ## 3. Safety model (same as juniper_customer_migration)
 
 - Nothing reaches a device unless asked twice: the CLI defaults to a dry run
@@ -98,12 +121,15 @@ core/
   status.py                 runs/<run>/status.json merge-on-save + derived device state
   ledger.py                 SQLite fleet ledger
   rancid.py                 RANCID folder reader (offline before-picture)
+  platforms.py              per-platform profile: login script, command-file wrappers, commit model
+  mrv_parser.py / mrv_builder.py   MRV OptiSwitch running-config parser and CLI builder (staged model)
   mop.py                    MOP (markdown + html) per run
   errorlog.py               logs/errors.log
 templates/
   junos/mx/ems_fix.set.j2   MX + ACX standard (apply-group tacplus_servers, ccf classes, accounting)
   junos/ex/ems_fix.set.j2   EX standard (per-server tacplus lines, no apply-group)
   junos/srx/ems_fix.set.j2  starts as the EX shape; marked UNVALIDATED until a real SRX is reviewed
+  mrv/optiswitch/ems_fix.cli.j2   MRV OptiSwitch standard (additive TACACS, aaa, ntp, rsyslog, snmp)
   iosxr/asr9k/README.md     placeholder -- hierarchical config, needs its own parser/session driver
   saos/ciena/README.md      placeholder
 config/

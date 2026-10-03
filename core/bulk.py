@@ -103,7 +103,9 @@ def _line(device: str, step: str, rec: dict) -> str:
         extra = "COMPLIANT -- nothing to send" if rec.get("compliant") else f"{rec.get('line_count', 0)} line(s) -> {rec.get('file')}"
     if step.startswith(status.DISCOVER) and rec.get("verdict") == "ok":
         extra = f"{rec.get('platform')} {rec.get('model') or ''} via {rec.get('credential')}".strip()
-    if step.startswith(status.DEPLOY) and rec.get("verdict") == "ok":
+    if step.startswith(status.DEPLOY) and rec.get("verdict") == "ok" and rec.get("staged"):
+        extra = "applied, NOT saved -- the confirm login decides"
+    elif step.startswith(status.DEPLOY) and rec.get("verdict") == "ok":
         extra = f"commit confirmed {rec.get('confirmed_minutes')} -- reverts at {rec.get('rollback_due_at')} unless confirmed"
     if step.startswith(status.CONFIRM) and rec.get("verdict") == "ok":
         extra = f"confirmed via {rec.get('credential')}" + (f" -- {rec['verify']}" if rec.get("verify") else "")

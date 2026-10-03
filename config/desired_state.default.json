@@ -1,17 +1,17 @@
 {
   "_comment": "Fleet standard, shipped with the tool. On first start it is copied to desired_state.json (not in git); fill tacacs.secret and the two SNMP community names there. Platform sections override the top-level ones.",
-
   "cm_number": "",
-
   "commit": {
     "comment": "ISE_FIX_Script",
     "confirmed_minutes": 20,
     "confirm_delay_seconds": 20,
     "timeout_seconds": 180
   },
-
   "tacacs": {
-    "servers": ["10.48.0.20", "10.46.8.20"],
+    "servers": [
+      "10.48.0.20",
+      "10.46.8.20"
+    ],
     "secret": "REPLACE_WITH_ISE_TACACS_SECRET",
     "port": 49,
     "single_connection": true,
@@ -19,22 +19,43 @@
     "source_address": "auto",
     "apply_group": "tacplus_servers",
     "rotate_secret": true,
-    "authentication_order": ["tacplus"],
+    "authentication_order": [
+      "tacplus"
+    ],
     "accounting": {
-      "events": ["login", "change-log", "interactive-commands"],
+      "events": [
+        "login",
+        "change-log",
+        "interactive-commands"
+      ],
       "destination": "tacplus"
     }
   },
-
-  "radius": { "delete": true },
-
+  "radius": {
+    "delete": true
+  },
   "login": {
     "classes": {
       "config-provision-ccf": {
         "idle_timeout": 15,
-        "permissions": ["clear", "configure", "firewall-control", "interface-control", "maintenance", "network",
-                        "rollback", "routing-control", "security", "security-control", "view", "view-configuration"],
-        "deny_commands": ["start shell", "^request system|vmhost|chassis|session .*"],
+        "permissions": [
+          "clear",
+          "configure",
+          "firewall-control",
+          "interface-control",
+          "maintenance",
+          "network",
+          "rollback",
+          "routing-control",
+          "security",
+          "security-control",
+          "view",
+          "view-configuration"
+        ],
+        "deny_commands": [
+          "start shell",
+          "^request system|vmhost|chassis|session .*"
+        ],
         "deny_configuration": [
           "firewall filter ((p|P)rotect|PROTECT)-.* ",
           "firewall family .* filter ((p|P)rotect|PROTECT)-.* ",
@@ -46,45 +67,116 @@
       },
       "ro-ccf": {
         "idle_timeout": 30,
-        "permissions": ["admin", "field", "firewall", "interface", "network", "routing", "snmp", "trace",
-                        "view", "view-configuration"]
+        "permissions": [
+          "admin",
+          "field",
+          "firewall",
+          "interface",
+          "network",
+          "routing",
+          "snmp",
+          "trace",
+          "view",
+          "view-configuration"
+        ]
       },
-      "super-user-ccf": { "idle_timeout": 30, "permissions": ["all"] },
-      "superuser-local": { "permissions": ["all"] }
+      "super-user-ccf": {
+        "idle_timeout": 30,
+        "permissions": [
+          "all"
+        ]
+      },
+      "superuser-local": {
+        "permissions": [
+          "all"
+        ]
+      }
     },
     "users": {
-      "remote":           { "class": "unauthorized" },
-      "remote-admin":     { "class": "super-user-ccf" },
-      "remote-operator":  { "class": "ro-ccf" },
-      "remote-provision": { "class": "config-provision-ccf" },
-      "ccf_cm_user":      { "class": "super-user-ccf", "encrypted_password": "" },
-      "zccfrancid":       { "class": "super-user-ccf", "encrypted_password": "" }
+      "remote": {
+        "class": "unauthorized"
+      },
+      "remote-admin": {
+        "class": "super-user-ccf"
+      },
+      "remote-operator": {
+        "class": "ro-ccf"
+      },
+      "remote-provision": {
+        "class": "config-provision-ccf"
+      },
+      "ccf_cm_user": {
+        "class": "super-user-ccf",
+        "encrypted_password": ""
+      },
+      "zccfrancid": {
+        "class": "super-user-ccf",
+        "encrypted_password": ""
+      }
     },
-    "delete_users": ["admin", "hvdmc", "rancid"],
+    "delete_users": [
+      "admin",
+      "hvdmc",
+      "rancid"
+    ],
     "delete_unlisted_users": false,
-    "protect_users": ["root", "remote", "remote-admin", "remote-operator", "remote-provision"]
+    "protect_users": [
+      "root",
+      "remote",
+      "remote-admin",
+      "remote-operator",
+      "remote-provision"
+    ]
   },
-
-  "ntp": { "servers": ["10.48.0.67", "10.46.5.35"], "source_address": "auto", "delete_other_servers": true },
-
+  "ntp": {
+    "servers": [
+      "10.48.0.67",
+      "10.46.5.35"
+    ],
+    "source_address": "auto",
+    "delete_other_servers": true
+  },
   "syslog": {
-    "hosts": { "10.48.0.78": ["any any"], "10.48.0.51": ["any any"] },
+    "hosts": {
+      "10.48.0.78": [
+        "any any"
+      ],
+      "10.48.0.51": [
+        "any any"
+      ]
+    },
     "source_address": "auto",
     "delete_other_hosts": true
   },
-
   "snmp": {
     "communities": {
-      "REPLACE_WITH_RO_COMMUNITY_1": { "authorization": "read-only", "clients": [] },
-      "REPLACE_WITH_RO_COMMUNITY_2": { "authorization": "read-only", "clients": [] }
+      "REPLACE_WITH_RO_COMMUNITY_1": {
+        "authorization": "read-only",
+        "clients": []
+      },
+      "REPLACE_WITH_RO_COMMUNITY_2": {
+        "authorization": "read-only",
+        "clients": []
+      }
     },
     "delete_other_communities": true,
     "trap_group": {
       "name": "public",
       "version": "v2",
-      "categories": ["authentication", "chassis", "link", "remote-operations", "routing", "startup",
-                     "configuration", "services"],
-      "targets": ["10.76.36.26", "10.76.4.36"]
+      "categories": [
+        "authentication",
+        "chassis",
+        "link",
+        "remote-operations",
+        "routing",
+        "startup",
+        "configuration",
+        "services"
+      ],
+      "targets": [
+        "10.76.36.26",
+        "10.76.4.36"
+      ]
     },
     "trap_source_address": "auto",
     "filter_interfaces": "all-internal-interfaces",
@@ -93,27 +185,93 @@
     "location": "",
     "managers": []
   },
-
   "platforms": {
     "mx": {},
     "acx": {},
     "ex": {
-      "tacacs": { "apply_group": "", "accounting": null },
+      "tacacs": {
+        "apply_group": "",
+        "accounting": null
+      },
       "login": {
         "classes": {},
         "users": {
-          "ccf_cm_user": { "class": "super-user", "encrypted_password": "" },
-          "zccfrancid":  { "class": "super-user", "encrypted_password": "" }
+          "ccf_cm_user": {
+            "class": "super-user",
+            "encrypted_password": ""
+          },
+          "zccfrancid": {
+            "class": "super-user",
+            "encrypted_password": ""
+          }
         }
       },
-      "snmp": { "filter_interfaces": "", "filter_duplicates": false,
-                "trap_group": { "categories": ["authentication", "chassis", "link", "routing", "startup",
-                                               "configuration", "services"] } }
+      "snmp": {
+        "filter_interfaces": "",
+        "filter_duplicates": false,
+        "trap_group": {
+          "categories": [
+            "authentication",
+            "chassis",
+            "link",
+            "routing",
+            "startup",
+            "configuration",
+            "services"
+          ]
+        }
+      }
     },
     "srx": {
-      "tacacs": { "apply_group": "", "accounting": null },
-      "login": { "classes": {}, "users": { "ccf_cm_user": { "class": "super-user", "encrypted_password": "" } } },
-      "snmp": { "filter_interfaces": "", "filter_duplicates": false }
+      "tacacs": {
+        "apply_group": "",
+        "accounting": null
+      },
+      "login": {
+        "classes": {},
+        "users": {
+          "ccf_cm_user": {
+            "class": "super-user",
+            "encrypted_password": ""
+          }
+        }
+      },
+      "snmp": {
+        "filter_interfaces": "",
+        "filter_duplicates": false
+      }
+    },
+    "mrv": {
+      "tacacs": {
+        "apply_group": "",
+        "accounting": null,
+        "rotate_secret": false,
+        "authen_method": "ascii-login",
+        "aaa_lines": [
+          "authentication login default tacacs+ local",
+          "accounting commands login tacacs+",
+          "accounting commands enable tacacs+",
+          "accounting commands debug tacacs+",
+          "accounting commands configure tacacs+",
+          "accounting exec tacacs+",
+          "authorization enable tacacs+",
+          "authorization debug tacacs+",
+          "authorization configure tacacs+"
+        ]
+      },
+      "login": {
+        "classes": {},
+        "users": {},
+        "delete_users": []
+      },
+      "snmp": {
+        "filter_interfaces": "",
+        "filter_duplicates": false,
+        "mrv_trap_community": "public",
+        "trap_group": {
+          "categories": []
+        }
+      }
     }
   }
 }

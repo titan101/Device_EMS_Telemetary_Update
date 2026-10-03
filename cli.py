@@ -24,7 +24,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from core import builder, bulk, config_parser, credentials, desired, errorlog, ledger, mop, runs, session, status
+from core import builder, bulk, config_parser, credentials, desired, errorlog, ledger, mop, mrv_builder, mrv_parser
+from core import platforms, runs, session, status
 from core import templates as tpl
 from core.pipeline import RunContext
 
@@ -164,7 +165,8 @@ def cmd_check(args: argparse.Namespace) -> None:
     holes: list[str] = []
     for platform in tpl.TEMPLATE_FOR:
         d = des.for_platform(platform)
-        holes += [h for h in des.placeholders(platform) if h not in holes]
+        holes += [f"[{platform}] {h}" for h in des.placeholders(platform) if f"[{platform}] {h}" not in holes
+                  and not any(h2.endswith(h) for h2 in holes)]
         print(f"desired state: {platform:4} -> {len(d['tacacs']['servers'])} tacacs, {len(d['login']['classes'])} classes, "
               f"{len(d['login']['users'])} users, {len(d['ntp']['servers'])} ntp, {len(d['syslog']['hosts'])} syslog, "
               f"{len(d['snmp']['communities'])} communities")
@@ -185,6 +187,8 @@ def cmd_new(args: argparse.Namespace) -> None:
         sys.exit("ERROR: give --file targets.txt or --targets a,b,c")
     try:
         devices, hints = runs.parse_targets(text)
+        if args.platform:
+            hints = {**{d: args.platform for d in devices}, **hints}
         run_id = runs.safe_run_id(args.run)
         run_dir = runs.create_run(RUNS_ROOT, run_id, devices, hints, cm_number=args.cm or "", note=args.note or "")
     except runs.RunError as exc:
@@ -250,6 +254,8 @@ def _skip_reason(recs: dict, mode: str, live: bool, redo: bool) -> str:
         # The failed change is still live on the box until the timer expires;
         # discovering it now would read the pending config as the real one.
         return f"rollback pending until {_timer_running(recs)} -- let the box revert, then recheck"
+    if state == status.ST_ROLLBACK_PENDING and (recs.get(status.CONFIRM) or {}).get("staged"):
+        return "unsaved change still on the box -- run recheck (it rolls the box back) before running the fix again"
     if redo:
         return ""
     if status.done_live(recs, status.CONFIRM):
@@ -383,6 +389,17 @@ def cmd_templates(args: argparse.Namespace) -> None:
 def cmd_preview(args: argparse.Namespace) -> None:
     path = Path(args.config_file)
     text = path.read_text(encoding="utf-8", errors="replace")
+    if args.platform == "mrv" or (not args.platform and mrv_parser.is_mrv_text(text)):
+        cfg = mrv_parser.parse_config(text)
+        device = args.device or cfg.hostname or path.stem
+        facts = mrv_parser.facts(device, text, cfg)
+        des = _load_desired(Path(args.desired) if args.desired else None)
+        try:
+            result = mrv_builder.build(facts, cfg, des)
+        except mrv_builder.MrvBuildError as exc:
+            sys.exit(f"ERROR: {exc}")
+        print(builder.render_file(result, facts, "preview", "", f"file {path}"), end="")
+        return
     cfg = config_parser.parse_config(text)
     device = args.device or cfg.hostname or path.stem
     facts = config_parser.facts_from_show_version(device, text)
@@ -449,6 +466,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--file", help="targets file: one device per line, optional ,platform")
     s.add_argument("--targets", help="comma-separated devices")
     s.add_argument("--cm", help="change-management number")
+    s.add_argument("--platform", choices=sorted(runs.PLATFORMS),
+                   help="platform for every device in the list (needed for MRV/ADVA: a different login script); "
+                        "a per-line ',platform' still wins")
     s.add_argument("--note")
     s.set_defaults(func=cmd_new)
 
@@ -495,7 +515,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("preview", help="render the fix file for one config dump, no run, no device")
     s.add_argument("--config-file", required=True)
-    s.add_argument("--platform", choices=sorted(tpl.TEMPLATE_FOR))
+    s.add_argument("--platform", choices=sorted(tpl.TEMPLATE_FOR), help="(auto-detected for Junos vs MRV text)")
     s.add_argument("--device")
     s.add_argument("--desired")
     s.set_defaults(func=cmd_preview)

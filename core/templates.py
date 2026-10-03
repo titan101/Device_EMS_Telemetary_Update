@@ -13,6 +13,7 @@ TEMPLATE_FOR = {
     "acx": "junos/mx/ems_fix.set.j2",
     "ex": "junos/ex/ems_fix.set.j2",
     "srx": "junos/srx/ems_fix.set.j2",
+    "mrv": "mrv/optiswitch/ems_fix.cli.j2",
 }
 UNVALIDATED = {"srx": "no real SRX configuration has been reviewed yet -- rehearse and read the diff first"}
 

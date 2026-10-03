@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-PLATFORM_TEMPLATES = {"mx": "mx", "acx": "mx", "ex": "ex", "srx": "srx"}
+PLATFORM_TEMPLATES = {"mx": "mx", "acx": "mx", "ex": "ex", "srx": "srx", "mrv": "mrv"}
 UNSUPPORTED_PLATFORMS = {"ptx", "qfx", "unknown"}
 
 
@@ -50,6 +50,8 @@ class ExistingConfig:
     lo0_address: str = ""
     fxp0_master_address: str = ""
     irb_mgmt_address: str = ""
+    blocks: dict[str, list[str]] = field(default_factory=dict)   # IOS-like platforms: header -> children
+    snmp_community_ids: dict[str, str] = field(default_factory=dict)  # MRV: community string -> index
 
     def lines_under(self, path: str) -> list[str]:
         """Every `set <path> ...` line (and `set <path>` itself)."""
@@ -71,6 +73,8 @@ class BuildResult:
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     forbidden_paths: list[str] = field(default_factory=list)   # `set <path>` must be gone after the change
+    finalize_lines: list[str] = field(default_factory=list)    # staged platforms: sent by the confirm session before the save
+    expected_statements: list[str] = field(default_factory=list)  # staged platforms: 'block|statement' that must be present
 
     @property
     def compliant(self) -> bool:
