@@ -1,0 +1,17 @@
+# systemd unit for the Device EMS Console. Copy to /etc/systemd/system/, set User= and
+# WorkingDirectory=, then: systemctl daemon-reload && systemctl enable --now device-ems-console
+[Unit]
+Description=Device EMS Console (jlogin-driven EMS standardisation)
+After=network.target
+
+[Service]
+Type=simple
+User=netops
+WorkingDirectory=/opt/Device_EMS_Telemetary_Update
+ExecStart=/opt/Device_EMS_Telemetary_Update/venv/bin/python webapp.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

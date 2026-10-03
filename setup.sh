@@ -49,9 +49,9 @@ if ! "$VENV_PY" -m pip --version >/dev/null 2>&1; then
 fi
 
 "$VENV_PY" -m pip install --upgrade pip >/dev/null
-# requirements.txt belongs to the legacy Streamlit app (its own .venv via run.sh);
-# the console and CLI need only this short list.
-"$VENV_PY" -m pip install -r requirements-console.txt
+
+
+"$VENV_PY" -m pip install -r requirements.txt
 mkdir -p runs logs
 echo
 echo "Ready. Run it with:  $VENV_PY cli.py --help     (console: ./run_webapp.sh)"

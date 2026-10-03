@@ -1,27 +1,19 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-
-if not exist ".venv" (
-    echo Creating virtual environment...
-    py -3 -m venv .venv
-    if errorlevel 1 (
-        python -m venv .venv
-    )
-    if errorlevel 1 (
-        echo Could not create .venv.
-        echo Install Python 3 with venv support, then run this launcher again.
-        pause
-        exit /b 1
-    )
+title Device EMS Console
+if not exist venv\Scripts\python.exe (
+  echo Creating the Python environment ...
+  py -3 -m venv venv 2>nul || python -m venv venv
+  if not exist venv\Scripts\python.exe (
+    echo Could not create venv. Install Python 3.10+ from python.org and run this again.
+    pause
+    exit /b 1
+  )
 )
-
-".venv\Scripts\python.exe" -m pip install --upgrade pip
-".venv\Scripts\python.exe" -m pip install -r requirements.txt
-
+venv\Scripts\python.exe -c "import flask, jinja2" 2>nul || venv\Scripts\python.exe -m pip install -r requirements.txt
+echo Starting the console -- the browser opens when it is ready. Close this window to stop it.
+venv\Scripts\python.exe webapp.py --open-browser
 echo.
-echo Starting Device EMS Telemetry Update dashboard...
-echo Open your browser to: http://localhost:8502
-echo Press Ctrl+C to stop.
-echo.
-".venv\Scripts\streamlit.exe" run app.py --server.port 8502 --server.headless true
+echo The console stopped. Read any error above.
+pause
