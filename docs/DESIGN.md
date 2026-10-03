@@ -194,8 +194,9 @@ Dark "midnight + ember" shell copied from the HotCut console (BASE_CSS, nav
 with DRY RUN / LIVE pill, cards, chips, device board). Pages: Console (fleet
 stats + stepper), New run (paste or upload targets, options), Run (device
 board with Select failed / Select not done / Select rollback-pending, Rehearse,
-Run ISE fix, Recheck, MOP, CSV), Desired state (JSON editor + per-platform
-preview), Credentials (ladders, masked, jlogin health), Templates (read-only
+Run ISE fix, Recheck, MOP, CSV), Desired state (per-platform form: MX base +
+EX/SRX/ACX tabs storing only differences, set-command preview, raw JSON under
+Advanced with the secret masked), Credentials (ladders, masked, jlogin health), Templates (read-only
 view), Ledger, Errors, Manual, Settings (theme, RANCID folder, auto-close).
 Binds 127.0.0.1 only. POSTs are Origin/Referer-checked. Downloads are
 path-contained under `runs/`.

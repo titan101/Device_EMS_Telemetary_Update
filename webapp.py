@@ -24,7 +24,8 @@ from flask import Flask, Response, jsonify, redirect, render_template_string, re
 from werkzeug.exceptions import HTTPException
 
 import cli
-from core import credentials, desired, errorlog, ledger, runs, session, status
+from core import builder, credentials, desired, desired_form, errorlog, ledger, runs, session, status
+from core.models import ExistingConfig
 from core import templates as tpl
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -499,19 +500,123 @@ LOG_HTML = _page("Log", """
 
 DESIRED_HTML = _page("Desired state", """
 <h1>Desired state</h1>
-<p class="lead">The standard every device is brought to -- <span class="mono">config/desired_state.json</span>. Top-level sections apply to every platform; <span class="mono">platforms.ex</span> / <span class="mono">platforms.srx</span> override them (a mapping like <span class="mono">classes</span> or <span class="mono">users</span> is replaced, scalars and lists replace, other objects merge).</p>
-{% if saved %}<div class="card teal">Saved.</div>{% endif %}
+<p class="lead">The standard every device is brought to. Edit one platform at a time: <strong>MX</strong> is the base; what you change on another tab is stored as that platform's difference from MX. Lists are one entry per line.</p>
+<div class="tabnav">
+{% for p in platforms %}<a href="{{ url_for('desired_page', platform=p) }}" class="{% if p == platform %}active{% endif %}">{{ p.upper() }}{% if p in overridden %}<span class="n">differs</span>{% endif %}</a>{% endfor %}
+</div>
+{% if saved %}<div class="card teal">Saved {{ ds.path }}.</div>{% endif %}
 {% if error %}<div class="card danger">{{ error }}</div>{% endif %}
-{% if ds.placeholders %}<div class="card warn"><strong>{{ ds.placeholders|length }} placeholder(s) to fill before any build:</strong> {{ ds.placeholders|join('; ') }}</div>{% endif %}
-{% if ds.platforms %}<section class="card"><h2>What each platform gets</h2><table><tr><th>platform</th><th>tacacs</th><th>classes</th><th>users</th><th>ntp</th><th>syslog</th><th>communities</th></tr>
-{% for p, v in ds.platforms.items() %}<tr><td class="mono">{{ p }}</td><td class="mono">{{ v.tacacs|join(', ') }}</td><td>{{ v.classes }}</td><td>{{ v.users }}</td><td class="mono">{{ v.ntp|join(', ') }}</td><td class="mono">{{ v.syslog|join(', ') }}</td><td>{{ v.communities }}</td></tr>{% endfor %}</table>
-<p class="hint">commit confirmed {{ ds.commit.confirmed_minutes }} min, comment {{ ds.commit.comment }}, confirm after {{ ds.commit.confirm_delay_seconds }}s, session timeout {{ ds.commit.timeout_seconds }}s</p></section>{% endif %}
-<section class="card"><form method="post">
-<div class="field"><label>{{ ds.path }}</label><textarea name="text" rows="34" spellcheck="false">{{ text }}</textarea></div>
-<p style="margin-top:12px" class="btns"><button class="primary" type="submit" name="do" value="save">Validate and save</button>
-<button type="submit" name="do" value="validate">Validate only</button>
-{% if not ds.exists %}<button type="submit" name="do" value="example">Start from the example</button>{% endif %}</p>
-</form></section>
+{% if ds.placeholders %}<div class="card warn"><strong>{{ ds.placeholders|length }} value(s) still to fill:</strong> {{ ds.placeholders|join('; ') }}</div>{% endif %}
+{% if preview %}<section class="card"><h2>{{ platform.upper() }} standard as set commands</h2>
+<p class="hint">Rendered against an empty box, so every line of the standard shows; per-device source-address lines and the deletes of that box's old entries are added at build time.</p>
+<pre class="term" style="max-height:50vh">{{ preview }}</pre></section>{% endif %}
+<form method="post" id="dsform">
+<input type="hidden" name="platform" value="{{ platform }}">
+<div class="two">
+<section class="card"><h2>TACACS+ (ISE)</h2>
+<div class="field"><label>Servers, in order</label><textarea name="tacacs_servers" rows="3">{{ d.tacacs.servers|join('\n') }}</textarea></div>
+<div class="field"><label>Shared secret {% if secret_set %}<span class="muted">(set -- leave blank to keep)</span>{% else %}<span style="color:var(--red)">(not set yet)</span>{% endif %}</label><input type="password" name="tacacs_secret" value="" placeholder="{% if secret_set %}unchanged{% else %}type the ISE secret{% endif %}" autocomplete="off"></div>
+<div class="btns" style="margin-top:12px">
+<label>port <input type="number" name="tacacs_port" value="{{ d.tacacs.port }}" style="width:70px"></label>
+<label>timeout <input type="number" name="tacacs_timeout" value="{{ d.tacacs.timeout or '' }}" style="width:70px" placeholder="default"></label>
+<label><input type="checkbox" name="single_connection" {% if d.tacacs.single_connection %}checked{% endif %}> single-connection</label>
+<label><input type="checkbox" name="rotate_secret" {% if d.tacacs.rotate_secret %}checked{% endif %}> re-send the secret on every box</label>
+</div>
+<div class="field"><label>Source address <span class="muted">(auto = the box's current one, else fxp0 master-only / lo0; none = omit; or an IP)</span></label><input type="text" name="tacacs_source" value="{{ d.tacacs.source_address }}"></div>
+<div class="field"><label class="check"><input type="checkbox" name="use_apply_group" {% if d.tacacs.apply_group %}checked{% endif %}> use an apply-group (MX style: <span class="mono">groups NAME system tacplus-server &lt;*&gt;</span>)</label>
+<input type="text" name="apply_group" value="{{ d.tacacs.apply_group or 'tacplus_servers' }}" placeholder="tacplus_servers"></div>
+<div class="field"><label>Authentication order <span class="muted">(comma-separated; tacplus alone = no local fallback)</span></label><input type="text" name="authentication_order" value="{{ d.tacacs.authentication_order|join(', ') }}"></div>
+<div class="field"><label class="check"><input type="checkbox" name="accounting_enabled" {% if d.tacacs.accounting %}checked{% endif %}> accounting to TACACS+</label>
+<textarea name="accounting_events" rows="3" placeholder="login&#10;change-log&#10;interactive-commands">{{ (d.tacacs.accounting.events if d.tacacs.accounting else ['login','change-log','interactive-commands'])|join('\n') }}</textarea>
+<input type="hidden" name="accounting_destination" value="tacplus"></div>
+<div class="field"><label class="check"><input type="checkbox" name="radius_delete" {% if d.radius.delete %}checked{% endif %}> delete any RADIUS server found</label></div>
+</section>
+
+<section class="card"><h2>NTP, syslog, SNMP</h2>
+<div class="field"><label>NTP servers</label><textarea name="ntp_servers" rows="2">{{ d.ntp.servers|join('\n') }}</textarea>
+<div class="btns" style="margin-top:6px"><label>source <input type="text" name="ntp_source" value="{{ d.ntp.source_address }}" size="14"></label>
+<label><input type="checkbox" name="ntp_delete_others" {% if d.ntp.delete_other_servers %}checked{% endif %}> delete other NTP servers</label></div></div>
+<div class="field"><label>Syslog hosts <span class="muted">-- <span class="mono">ip facility severity</span>, more selectors with <span class="mono">;</span></span></label><textarea name="syslog_hosts" rows="3" placeholder="192.0.2.78 any any">{{ syslog_text }}</textarea>
+<div class="btns" style="margin-top:6px"><label>source <input type="text" name="syslog_source" value="{{ d.syslog.source_address }}" size="14"></label>
+<label><input type="checkbox" name="syslog_delete_others" {% if d.syslog.delete_other_hosts %}checked{% endif %}> delete other syslog hosts</label></div></div>
+<div class="field"><label>SNMP communities <span class="muted">-- <span class="mono">name, read-only|read-write, client1 client2</span></span></label><textarea name="communities" rows="3" placeholder="COMMUNITY, read-only">{{ communities_text }}</textarea>
+<label class="check" style="margin-top:6px"><input type="checkbox" name="snmp_delete_others" {% if d.snmp.delete_other_communities %}checked{% endif %}> delete other communities</label></div>
+<div class="field"><label>Trap targets <span class="muted">(blank = leave trap-groups alone)</span></label><textarea name="trap_targets" rows="2">{{ (d.snmp.trap_group.targets if d.snmp.trap_group else [])|join('\n') }}</textarea>
+<div class="btns" style="margin-top:6px"><label>group <input type="text" name="trap_group_name" value="{{ d.snmp.trap_group.name if d.snmp.trap_group else 'public' }}" size="10"></label>
+<label>version <input type="text" name="trap_version" value="{{ d.snmp.trap_group.version if d.snmp.trap_group else 'v2' }}" size="4"></label>
+<label>trap source <input type="text" name="trap_source" value="{{ d.snmp.trap_source_address }}" size="10"></label></div></div>
+<div class="field"><label>Trap categories</label><textarea name="trap_categories" rows="3">{{ (d.snmp.trap_group.categories if d.snmp.trap_group else [])|join('\n') }}</textarea></div>
+<div class="btns"><label>filter-interfaces <input type="text" name="filter_interfaces" value="{{ d.snmp.filter_interfaces }}" size="22" placeholder="all-internal-interfaces"></label>
+<label><input type="checkbox" name="filter_duplicates" {% if d.snmp.filter_duplicates %}checked{% endif %}> filter-duplicates</label></div>
+<div class="field"><label>Contact / location <span class="muted">(blank = leave the box's own)</span></label><input type="text" name="snmp_contact" value="{{ d.snmp.contact }}" placeholder="contact"> <input type="text" name="snmp_location" value="{{ d.snmp.location }}" placeholder="location" style="margin-top:6px"></div>
+<div class="field"><label>SNMP pollers to check against the lo0 protect filter</label><textarea name="snmp_managers" rows="2">{{ d.snmp.managers|join('\n') }}</textarea></div>
+</section>
+</div>
+
+<section class="card"><h2>Login users</h2>
+<div class="field"><label>Users to ensure -- <span class="mono">name, class, uid, encrypted-password-hash</span> (uid and hash optional; template users need no password)</label>
+<textarea name="users" rows="7" placeholder="remote, unauthorized, 2000&#10;remote-admin, super-user-ccf&#10;ccf_cm_user, super-user-ccf, , $6$...">{{ users_text }}</textarea></div>
+<div class="two">
+<div class="field"><label>Legacy users to delete when found</label><textarea name="delete_users" rows="3">{{ d.login.delete_users|join('\n') }}</textarea>
+<label class="check" style="margin-top:6px"><input type="checkbox" name="delete_unlisted_users" {% if d.login.delete_unlisted_users %}checked{% endif %}> delete every user not listed above (protected ones excepted)</label></div>
+<div class="field"><label>Never delete <span class="muted">(root, template users and anything on the credential ladder are always protected)</span></label><textarea name="protect_users" rows="3">{{ d.login.protect_users|join('\n') }}</textarea></div>
+</div>
+<p class="hint">Hash for a new local user: <span class="mono">cli.py hash-password</span>, or copy the <span class="mono">encrypted-password</span> line from a box where the user was set by hand.</p>
+</section>
+
+<section class="card"><h2>Login classes <span class="muted">(none = the platform uses only built-in classes)</span></h2>
+<div id="classes">
+{% for c in classes %}
+<fieldset class="classrow" style="border:1px solid var(--line2);border-radius:8px;padding:10px 12px;margin:0 0 10px">
+<div class="btns"><label>name <input type="text" name="class_name" value="{{ c.name }}" size="24"></label>
+<label>idle-timeout <input type="number" name="class_idle_timeout" value="{{ c.idle_timeout }}" style="width:70px" placeholder="none"></label>
+<button type="button" class="sm rm">remove</button></div>
+<div class="two" style="margin-top:8px">
+<div><label>permissions</label><textarea name="class_permissions" rows="4" style="width:100%">{{ c.permissions }}</textarea></div>
+<div><label>deny-commands-regexps</label><textarea name="class_deny_commands" rows="4" style="width:100%">{{ c.deny_commands }}</textarea></div>
+<div><label>deny-configuration-regexps <span class="muted">(trailing spaces are part of the regexp -- keep them)</span></label><textarea name="class_deny_configuration" rows="4" style="width:100%">{{ c.deny_configuration }}</textarea></div>
+<div><label>allow-commands-regexps / allow-configuration-regexps</label><textarea name="class_allow_commands" rows="2" style="width:100%">{{ c.allow_commands }}</textarea><textarea name="class_allow_configuration" rows="2" style="width:100%;margin-top:4px">{{ c.allow_configuration }}</textarea></div>
+</div></fieldset>
+{% endfor %}
+</div>
+<template id="classtpl"><fieldset class="classrow" style="border:1px solid var(--line2);border-radius:8px;padding:10px 12px;margin:0 0 10px">
+<div class="btns"><label>name <input type="text" name="class_name" value="" size="24"></label>
+<label>idle-timeout <input type="number" name="class_idle_timeout" value="" style="width:70px" placeholder="none"></label>
+<button type="button" class="sm rm">remove</button></div>
+<div class="two" style="margin-top:8px">
+<div><label>permissions</label><textarea name="class_permissions" rows="4" style="width:100%"></textarea></div>
+<div><label>deny-commands-regexps</label><textarea name="class_deny_commands" rows="4" style="width:100%"></textarea></div>
+<div><label>deny-configuration-regexps</label><textarea name="class_deny_configuration" rows="4" style="width:100%"></textarea></div>
+<div><label>allow-commands-regexps / allow-configuration-regexps</label><textarea name="class_allow_commands" rows="2" style="width:100%"></textarea><textarea name="class_allow_configuration" rows="2" style="width:100%;margin-top:4px"></textarea></div>
+</div></fieldset></template>
+<button type="button" class="sm" id="addclass">Add a class</button>
+</section>
+
+<section class="card"><h2>Commit</h2>
+<div class="btns">
+<label>comment <input type="text" name="commit_comment" value="{{ d.commit.comment }}" size="18"></label>
+<label>commit confirmed minutes <input type="number" name="confirmed_minutes" value="{{ d.commit.confirmed_minutes }}" style="width:70px"></label>
+<label>seconds before the confirm login <input type="number" name="confirm_delay_seconds" value="{{ d.commit.confirm_delay_seconds }}" style="width:70px"></label>
+<label>session timeout s <input type="number" name="timeout_seconds" value="{{ d.commit.timeout_seconds }}" style="width:80px"></label>
+</div></section>
+
+<p class="btns"><button class="primary" type="submit" name="do" value="save">Save {{ platform.upper() }}</button>
+<button type="submit" name="do" value="preview">Show {{ platform.upper() }} as set commands</button>
+{% if platform != 'mx' and platform in overridden %}<button type="submit" name="do" value="reset" class="amber" onclick="return confirm('Drop every {{ platform.upper() }} difference and use the MX standard?')">Reset {{ platform.upper() }} to MX</button>{% endif %}</p>
+</form>
+<details class="fold" style="margin-top:18px"><summary>Advanced: the raw JSON</summary>
+<form method="post" style="margin-top:10px"><input type="hidden" name="platform" value="{{ platform }}">
+<textarea name="text" rows="24" spellcheck="false" style="width:100%">{{ text }}</textarea>
+<p class="btns" style="margin-top:8px"><button type="submit" name="do" value="save_json">Validate and save JSON</button></p></form></details>
+<script>
+document.getElementById('addclass').addEventListener('click', function () {
+  const node = document.getElementById('classtpl').content.cloneNode(true);
+  document.getElementById('classes').appendChild(node);
+  wire();
+});
+function wire(){ document.querySelectorAll('.classrow .rm').forEach(function (b) { b.onclick = function () { b.closest('.classrow').remove(); }; }); }
+wire();
+</script>
 """)
 
 CREDENTIALS_HTML = _page("Credentials", """
@@ -757,21 +862,61 @@ def job_status(job_id):
 @app.route("/desired", methods=["GET", "POST"])
 def desired_page():
     path = cli.CONFIG_DIR / desired.DESIRED_FILE
-    example = cli.CONFIG_DIR / "desired_state.example.json"
-    error, saved = "", False
-    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    cli.ensure_default_config()
+    platform = request.values.get("platform", "mx")
+    if platform not in desired_form.PLATFORMS:
+        platform = "mx"
+    error, saved, preview = "", False, ""
+    text = path.read_text(encoding="utf-8") if path.exists() else "{}"
+    state, err = desired.validate_text(text)
+    if state is None:
+        state, error = desired.DesiredState({}), f"{path.name} is not valid: {err} -- fix it under Advanced"
     if request.method == "POST":
-        do = request.form.get("do", "validate")
-        if do == "example":
-            text = example.read_text(encoding="utf-8") if example.exists() else "{}"
-        else:
-            text = request.form.get("text", "")
-            state, error = desired.validate_text(text)
-            if state and do == "save":
-                path.parent.mkdir(parents=True, exist_ok=True)
+        do = request.form.get("do", "save")
+        try:
+            if do == "save_json":
+                text = desired_form.unmask_json(request.form.get("text", ""), state.raw)
+                new_state, error = desired.validate_text(text)
+                if new_state:
+                    path.write_text(text, encoding="utf-8")
+                    state, saved = new_state, True
+            elif do == "reset":
+                raw = {**{k: v for k, v in state.raw.items() if k != "platforms"},
+                       "platforms": {p: o for p, o in state.platforms.items() if p != platform}}
+                text = desired_form.dumps(raw)
                 path.write_text(text, encoding="utf-8")
-                saved = True
-    return render_template_string(DESIRED_HTML, ds=_desired_summary(), text=text, error=error, saved=saved)
+                state, saved = desired.DesiredState(raw), True
+            else:
+                effective = desired_form.form_to_sections(request.form, state.for_platform(platform))
+                raw = desired_form.apply_platform(state, platform, effective)
+                new_state = desired.DesiredState(raw)
+                new_state.for_platform(platform)
+                if do == "preview":
+                    preview = _preview_lines(platform, new_state)
+                else:
+                    text = desired_form.dumps(raw)
+                    path.write_text(text, encoding="utf-8")
+                    state, saved = new_state, True
+        except (ValueError, desired.DesiredError) as exc:
+            error = str(exc)
+    d = state.for_platform(platform)
+    return render_template_string(
+        DESIRED_HTML, ds=_desired_summary(), text=desired_form.mask_json(state.raw), error=error, saved=saved, preview=preview,
+        platform=platform, platforms=desired_form.PLATFORMS, overridden=set(state.platforms), d=d,
+        secret_set=bool(d["tacacs"]["secret"]) and "REPLACE_WITH" not in d["tacacs"]["secret"],
+        users_text=desired_form.users_text(d["login"]["users"]),
+        communities_text=desired_form.communities_text(d["snmp"]["communities"]),
+        syslog_text=desired_form.syslog_text(d["syslog"]["hosts"]),
+        classes=desired_form.classes_rows(d["login"]["classes"]))
+
+
+def _preview_lines(platform: str, state: desired.DesiredState) -> str:
+    try:
+        lines, _ = builder.render(platform, ExistingConfig(), state.for_platform(platform), [])
+        lines = builder.minimise(lines, ExistingConfig(), rotate_secret=True)   # pure sets: nothing to delete on an empty box
+    except Exception as exc:  # noqa: BLE001 -- shown to the operator, not raised
+        return f"could not render: {exc}"
+    return "\n".join(builder.mask_secret(l) for l in lines)
 
 
 @app.route("/credentials", methods=["GET", "POST"])

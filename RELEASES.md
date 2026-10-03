@@ -2,6 +2,9 @@
 
 ## 2026-10-03 - Console only; shipped defaults
 
+- Desired state is a form now: per-platform tabs (MX base, EX/SRX/ACX differences), server/secret/SNMP fields, user and class rows, set-command preview; raw JSON under Advanced with the secret masked.
+- TACACS servers hidden inside any apply-group are removed like top-level ones.
+- The device board says when a box was reached with a static login (TACACS down there).
 - Removed the legacy Streamlit app from the repository (copy kept outside git); `requirements.txt` is now the console's.
 - `config/desired_state.default.json` ships the fleet standard and is copied to `desired_state.json` on first start; `cli.py check` prints exactly what is left to fill.
 - `run_dashboard.bat` builds the venv, starts the server and opens the browser only once it answers (the old launcher opened the browser first and looked dead).

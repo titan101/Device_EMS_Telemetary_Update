@@ -27,7 +27,7 @@ browser once it answers). The console binds 127.0.0.1 only and starts in **DRY R
 | `config/desired_state.json` (created on first start, not in git) | `tacacs.secret`, the two SNMP community names |
 | Console -> Settings | the RANCID folder (for Rehearse) |
 | `~/.cloginrc` | your own TACACS/ISE account -- jlogin's, not the tool's |
-| `config/credentials.json` (optional) | static local users for boxes whose TACACS is already dead |
+| Console -> Credentials (`config/credentials.json`) | static local users for boxes whose TACACS is already dead -- tried automatically when jlogin's own login is refused |
 
 ## The fix, device by device
 
@@ -75,6 +75,13 @@ can't be read from the box (offline RANCID builds). `--workers` 1-10 (default 8)
 Nothing reaches a device without `--live`; `--live` without `--yes` only prints the plan.
 
 ## Desired state (`config/desired_state.json`)
+
+In the console, **Desired state** is a form: one tab per platform (MX is the base; EX, SRX
+and ACX tabs edit what that platform gets, and only the differences are stored), fields
+for the TACACS/NTP/syslog servers and the secret, SNMP communities and traps, login users
+(`name, class, uid, hash` lines) and classes (add/remove rows), and a **Show as set
+commands** button that renders the platform's standard as plain Junos `set` lines. The
+raw JSON stays available under *Advanced*. The file itself:
 
 `config/desired_state.default.json` is the fleet standard and ships with the tool; on first
 start it is copied to `desired_state.json`, which is where the secret goes and which git

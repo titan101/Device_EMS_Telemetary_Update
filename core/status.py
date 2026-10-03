@@ -110,7 +110,11 @@ def _state_from(live: dict) -> tuple[str, str]:
     if recheck:
         return _recheck_state(recheck)
     if confirm:
-        return _confirm_state(confirm)
+        state, detail = _confirm_state(confirm)
+        got_in = (discover or {}).get("credential", "")
+        if got_in and got_in not in ("jlogin-default", "rancid"):
+            detail += f" -- TACACS was down on this box, got in as {got_in}"
+        return state, detail
     if deploy:
         if deploy.get("verdict") == "ok":
             return ST_PENDING_CONFIRM, f"commit confirmed, rollback due {deploy.get('rollback_due_at', '?')}"
