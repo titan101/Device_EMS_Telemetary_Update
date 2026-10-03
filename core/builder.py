@@ -20,6 +20,10 @@ PURPOSE = "EMS standard -- TACACS+ to ISE, login classes/users, accounting, NTP,
 # Managed objects: a set/delete line belongs to the first path pattern it matches.
 # Exact-state compare, rollback and verification all work per object.
 _OBJECT_RES = [re.compile(p) for p in (
+    r"^(groups \S+ system tacplus-server <\*>)",
+    r"^(groups \S+ system tacplus-server \S+)",
+    r"^(groups \S+ system tacplus-server <\*>)",
+    r"^(groups \S+ system tacplus-server \S+)",
     r"^(groups \S+ system tacplus-server)",
     r"^(system tacplus-server \S+)",
     r"^(system apply-groups \S+)",

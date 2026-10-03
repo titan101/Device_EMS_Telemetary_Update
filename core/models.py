@@ -29,6 +29,7 @@ class ExistingConfig:
     version: str = ""
     tacacs_servers: list[str] = field(default_factory=list)
     tacacs_group: str = ""                 # apply-group that carries tacplus-server <*>
+    tacacs_group_servers: list[tuple[str, str]] = field(default_factory=list)  # (group, server) entries inside ANY group
     tacacs_source_address: str = ""
     apply_groups: list[str] = field(default_factory=list)
     authentication_order: list[str] = field(default_factory=list)

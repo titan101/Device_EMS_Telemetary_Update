@@ -16,6 +16,9 @@
 {% for server in existing.tacacs_servers if server not in d.tacacs.servers %}
 delete system tacplus-server {{ server }}
 {% endfor %}
+{% for group, server in existing.tacacs_group_servers %}
+delete groups {{ group }} system tacplus-server {{ server }}
+{% endfor %}
 {% if existing.tacacs_group %}
 delete groups {{ existing.tacacs_group }} system tacplus-server
 {% endif %}

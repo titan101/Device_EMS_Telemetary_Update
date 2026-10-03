@@ -15,6 +15,7 @@ _VERSION_RE = re.compile(r"^set version (\S+)")
 _HOSTNAME_RE = re.compile(r"^set system host-name (\S+)")
 _TACPLUS_RE = re.compile(r"^set system tacplus-server (\S+)")
 _TACPLUS_GROUP_RE = re.compile(r"^set groups (\S+) system tacplus-server <\*>")
+_TACPLUS_IN_GROUP_RE = re.compile(r"^set groups (\S+) system tacplus-server (?!<\*>)(\S+)")
 _TACPLUS_SRC_RE = re.compile(r"^set (?:groups \S+ )?system tacplus-server \S+ source-address (\S+)")
 _APPLY_GROUPS_RE = re.compile(r"^set system apply-groups (\S+)")
 _AUTH_ORDER_RE = re.compile(r"^set system authentication-order (\S+)")
@@ -113,6 +114,16 @@ def _trap_groups(lines: list[str]) -> dict[str, dict]:
     return groups
 
 
+def _group_servers(lines: list[str]) -> list[tuple[str, str]]:
+    """Per-server tacplus entries hidden inside apply-groups -- inherited, so just as live."""
+    out: list[tuple[str, str]] = []
+    for line in lines:
+        m = _TACPLUS_IN_GROUP_RE.match(line)
+        if m and (m.group(1), m.group(2)) not in out:
+            out.append((m.group(1), m.group(2)))
+    return out
+
+
 def _prefix_lists(lines: list[str]) -> dict[str, list[str]]:
     lists: dict[str, list[str]] = {}
     for line in lines:
@@ -129,6 +140,7 @@ def parse_config(text: str) -> ExistingConfig:
     cfg.version = _first(_VERSION_RE, lines)
     cfg.tacacs_servers = _all(_TACPLUS_RE, lines)
     cfg.tacacs_group = _first(_TACPLUS_GROUP_RE, lines)
+    cfg.tacacs_group_servers = _group_servers(lines)
     cfg.tacacs_source_address = _first(_TACPLUS_SRC_RE, lines)
     cfg.apply_groups = _all(_APPLY_GROUPS_RE, lines)
     cfg.authentication_order = _all(_AUTH_ORDER_RE, lines)
