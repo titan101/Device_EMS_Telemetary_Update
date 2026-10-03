@@ -21,6 +21,7 @@ config/*.json
 config/*.txt
 config/*.csv
 !config/*.example.*
+!config/*.default.*
 
 # Per-install preferences
 webapp_settings.json

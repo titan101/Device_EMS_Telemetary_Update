@@ -21,13 +21,13 @@ jlogin simulator:
   editor (0600), templates view, ledger, errors, manual, settings.
 - Tests: `tests/` (parser, desired, builder, verify, session, status/creds/
   ledger, bulk+pipeline with the simulator, cli, webapp) -- all passing.
-- Docs: README (incl. old-vs-new comparison), DESIGN.md, RUN_FLOW.html,
-  LEGACY_README.md (the original app's README, kept verbatim).
-- `config/desired_state.json` (gitignored) is pre-filled with the fleet's
-  current standard; three values still read REPLACE_WITH: `tacacs.secret` and
-  the two SNMP community names. `cli.py check` lists them.
-- The legacy Streamlit tool is untouched and still runnable (`./run.sh`, its
-  own `.venv`, `requirements.txt`).
+- Docs: README, DESIGN.md, RUN_FLOW.html.
+- `config/desired_state.default.json` ships the fleet standard; first start copies
+  it to `desired_state.json` (gitignored). Three values read REPLACE_WITH:
+  `tacacs.secret` and the two SNMP community names. `cli.py check` lists them.
+- 2026-10-03: the legacy Streamlit tool was removed from the repo at Varun's
+  request (copy in My_Production_Sample_Configs/.../original_scripts/); the
+  Windows launcher is `run_dashboard.bat` (opens the browser once the port answers).
 
 ## What is NOT done / needs Varun
 

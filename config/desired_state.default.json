@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to desired_state.json (gitignored) and fill in every REPLACE_WITH value. Top-level sections apply to all platforms; platforms.<name> overrides them. 'auto' source-address = keep the device's current one, else fxp0 master-only (MX) / lo0 (EX).",
+  "_comment": "Fleet standard, shipped with the tool. On first start it is copied to desired_state.json (not in git); fill tacacs.secret and the two SNMP community names there. Platform sections override the top-level ones.",
 
   "cm_number": "",
 
@@ -11,7 +11,7 @@
   },
 
   "tacacs": {
-    "servers": ["192.0.2.20", "198.51.100.20"],
+    "servers": ["10.48.0.20", "10.46.8.20"],
     "secret": "REPLACE_WITH_ISE_TACACS_SECRET",
     "port": 49,
     "single_connection": true,
@@ -35,7 +35,6 @@
         "permissions": ["clear", "configure", "firewall-control", "interface-control", "maintenance", "network",
                         "rollback", "routing-control", "security", "security-control", "view", "view-configuration"],
         "deny_commands": ["start shell", "^request system|vmhost|chassis|session .*"],
-        "_deny_configuration_note": "verbatim from the fleet standard -- the trailing spaces are part of the regexps, keep them",
         "deny_configuration": [
           "firewall filter ((p|P)rotect|PROTECT)-.* ",
           "firewall family .* filter ((p|P)rotect|PROTECT)-.* ",
@@ -54,11 +53,11 @@
       "superuser-local": { "permissions": ["all"] }
     },
     "users": {
-      "remote":           { "uid": 2000, "class": "unauthorized" },
-      "remote-admin":     { "uid": 2001, "class": "super-user-ccf" },
-      "remote-operator":  { "uid": 2002, "class": "ro-ccf" },
-      "remote-provision": { "uid": 2003, "class": "config-provision-ccf" },
-      "ccf_cm_user":      { "class": "super-user-ccf", "encrypted_password": "REPLACE_WITH_$6$_HASH_OR_EMPTY" },
+      "remote":           { "class": "unauthorized" },
+      "remote-admin":     { "class": "super-user-ccf" },
+      "remote-operator":  { "class": "ro-ccf" },
+      "remote-provision": { "class": "config-provision-ccf" },
+      "ccf_cm_user":      { "class": "super-user-ccf", "encrypted_password": "" },
       "zccfrancid":       { "class": "super-user-ccf", "encrypted_password": "" }
     },
     "delete_users": ["admin", "hvdmc", "rancid"],
@@ -66,10 +65,10 @@
     "protect_users": ["root", "remote", "remote-admin", "remote-operator", "remote-provision"]
   },
 
-  "ntp": { "servers": ["192.0.2.67", "198.51.100.35"], "source_address": "auto", "delete_other_servers": true },
+  "ntp": { "servers": ["10.48.0.67", "10.46.5.35"], "source_address": "auto", "delete_other_servers": true },
 
   "syslog": {
-    "hosts": { "192.0.2.78": ["any any"], "192.0.2.51": ["any any"] },
+    "hosts": { "10.48.0.78": ["any any"], "10.48.0.51": ["any any"] },
     "source_address": "auto",
     "delete_other_hosts": true
   },
@@ -85,7 +84,7 @@
       "version": "v2",
       "categories": ["authentication", "chassis", "link", "remote-operations", "routing", "startup",
                      "configuration", "services"],
-      "targets": ["203.0.113.26", "203.0.113.36"]
+      "targets": ["10.76.36.26", "10.76.4.36"]
     },
     "trap_source_address": "auto",
     "filter_interfaces": "all-internal-interfaces",
@@ -103,7 +102,7 @@
       "login": {
         "classes": {},
         "users": {
-          "ccf_cm_user": { "class": "super-user", "encrypted_password": "REPLACE_WITH_$6$_HASH_OR_EMPTY" },
+          "ccf_cm_user": { "class": "super-user", "encrypted_password": "" },
           "zccfrancid":  { "class": "super-user", "encrypted_password": "" }
         }
       },

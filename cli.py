@@ -35,14 +35,30 @@ LEDGER_PATH = ROOT / "ledger.db"
 
 
 # --------------------------------------------------------------------------- helpers
+DESIRED_DEFAULT = "desired_state.default.json"
+
+
 def _desired_path() -> Path:
     return CONFIG_DIR / desired.DESIRED_FILE
 
 
+def ensure_default_config() -> bool:
+    """First start: copy the shipped fleet standard to desired_state.json (not in git).
+    Returns True when the copy was made."""
+    target, default = _desired_path(), CONFIG_DIR / DESIRED_DEFAULT
+    if target.exists() or not default.exists():
+        return False
+    shutil.copyfile(default, target)
+    return True
+
+
 def _load_desired(path: Path | None = None) -> desired.DesiredState:
     path = path or _desired_path()
+    if path == _desired_path() and ensure_default_config():
+        print(f"Created {path.name} from the shipped fleet standard -- fill in tacacs.secret and the SNMP "
+              "community names (cli.py check lists what is left).", file=sys.stderr)
     if not path.exists():
-        sys.exit(f"ERROR: {path} is missing -- copy config/desired_state.example.json to it and fill it in")
+        sys.exit(f"ERROR: {path} is missing and no {DESIRED_DEFAULT} to start from")
     try:
         return desired.load_desired(path)
     except desired.DesiredError as exc:
@@ -135,20 +151,29 @@ def cmd_check(args: argparse.Namespace) -> None:
     except credentials.CredentialError as exc:
         print(f"credentials:   PROBLEM -- {exc}")
     path = _desired_path()
+    if ensure_default_config():
+        print(f"desired state: created {path.name} from the shipped fleet standard")
     if not path.exists():
-        print(f"desired state: MISSING -- copy config/desired_state.example.json to {path.name}")
+        print(f"desired state: MISSING -- no {path.name} and no {DESIRED_DEFAULT} to start from")
         return
     try:
         des = desired.load_desired(path)
     except desired.DesiredError as exc:
         print(f"desired state: PROBLEM -- {exc}")
         return
+    holes: list[str] = []
     for platform in tpl.TEMPLATE_FOR:
-        holes = des.placeholders(platform)
         d = des.for_platform(platform)
+        holes += [h for h in des.placeholders(platform) if h not in holes]
         print(f"desired state: {platform:4} -> {len(d['tacacs']['servers'])} tacacs, {len(d['login']['classes'])} classes, "
               f"{len(d['login']['users'])} users, {len(d['ntp']['servers'])} ntp, {len(d['syslog']['hosts'])} syslog, "
-              f"{len(d['snmp']['communities'])} communities" + (f"  PLACEHOLDERS: {holes}" if holes else ""))
+              f"{len(d['snmp']['communities'])} communities")
+    if holes:
+        print(f"\nTO FILL in {path} ({len(holes)}):")
+        for hole in holes:
+            print(f"  - {hole}")
+    else:
+        print("\ndesired state: complete -- nothing left to fill")
 
 
 def cmd_new(args: argparse.Namespace) -> None:

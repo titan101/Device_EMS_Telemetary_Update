@@ -107,7 +107,7 @@ templates/
   iosxr/asr9k/README.md     placeholder -- hierarchical config, needs its own parser/session driver
   saos/ciena/README.md      placeholder
 config/
-  desired_state.example.json   the target standard (copy to desired_state.json, gitignored)
+  desired_state.default.json   the fleet standard, shipped; copied to desired_state.json on first start (gitignored)
   credentials.example.json     the ladders (copy to credentials.json, chmod 600, gitignored)
   targets.example.txt          one device per line, optional ",platform"
 runs/<run>/                 targets.txt, run.json, status.json, devices/<host>/{01_<host>_ems_fix.txt,
@@ -117,11 +117,8 @@ tests/                      pytest; fake jlogin launchers, fixture dumps (gitign
 captures/fake_jlogin.py     local simulator for end-to-end rehearsal (JLOGIN_BIN=...)
 ```
 
-The legacy Streamlit tool (`app.py`, `device_ems_telemetary_update/`,
-`templates/junos/change_templates/`, `run.sh`, `run_server.sh`,
-`run_dashboard.bat`, `run_cli.sh`, `run_watchdog.sh`, `requirements.txt`) is
-left in place, untouched, so the two can be compared. It uses `.venv`; the
-console uses `venv` + `requirements-console.txt`.
+The previous Streamlit tool was removed from the repo on 2026-10-03 (copy kept in
+My_Production_Sample_Configs/Device_EMS_Telemetary_Update/original_scripts/, outside git).
 
 ## 6. Desired state (config/desired_state.json)
 

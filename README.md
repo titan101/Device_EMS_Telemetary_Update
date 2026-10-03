@@ -6,37 +6,28 @@ accounting, NTP, syslog and SNMP -- on one device or five hundred, with a
 self-reverting commit and a second login that proves the new AAA works before
 anything is made permanent.
 
-Two tools live in this folder:
-
-| | **Device EMS Console** (current) | Legacy Streamlit app |
-|---|---|---|
-| Entry points | `./run_webapp.sh` / `run_webapp.bat` (console on :5460), `cli.py` | `./run.sh`, `./run_server.sh`, `run_dashboard.bat` (:8502), `./run_cli.sh` |
-| Device access | **jlogin** (`-x` command files), like the HotCut console | PyEZ / Netmiko / SNMP |
-| Credentials | `~/.cloginrc` first, then a ladder of static local users for boxes whose TACACS is already dead | encrypted vault, one profile per login |
-| Change | one platform template per device family (MX+ACX, EX, SRX) rendered as exact-state, then minimised to what differs | five small per-topic templates |
-| Commit | `commit confirmed N` + a **second login through the new AAA** that verifies and confirms; a failed login lets the box revert itself | `commit confirmed` + an audit login |
-| Bulk | parallel, resumable per-device records, skip-done, Ctrl-C safe, fleet ledger | sequential phases per change-id |
-| Rollback | exact restore of the pre-change lines in every fix file | none generated |
-| Offline | rehearse from a RANCID folder, MOP + CSV per run | discover-rancid report |
-| Python deps | flask, jinja2 | streamlit, pandas, junos-eznc, netmiko, pysnmp, cryptography |
-
-The legacy app is untouched (`app.py`, `device_ems_telemetary_update/`,
-`templates/junos/change_templates/`, `requirements.txt`, its `.venv`) so the two can
-be compared side by side. Everything below is about the console.
-
 ## Quick start
 
 ```bash
 git clone <this repo>
 cd Device_EMS_Telemetary_Update
-./setup.sh                                   # venv + requirements-console.txt
-cp config/desired_state.example.json config/desired_state.json    # fill in the standard
-cp config/credentials.example.json  config/credentials.json && chmod 600 config/credentials.json
-venv/bin/python cli.py check                 # jlogin, credentials, desired state in order?
+./setup.sh                                   # venv + requirements.txt (flask, jinja2, pytest)
+venv/bin/python cli.py check                 # creates config/desired_state.json from the shipped standard
+                                             # and lists exactly what is left to fill
 ./run_webapp.sh                              # http://127.0.0.1:5460
 ```
 
-Windows: `run_webapp.bat`. The console binds 127.0.0.1 only and starts in **DRY RUN**.
+Windows: double-click `run_dashboard.bat` (builds the venv, starts the server, opens the
+browser once it answers). The console binds 127.0.0.1 only and starts in **DRY RUN**.
+
+**What a new user fills in** -- everything else ships prefilled with the fleet standard:
+
+| where | what |
+|---|---|
+| `config/desired_state.json` (created on first start, not in git) | `tacacs.secret`, the two SNMP community names |
+| Console -> Settings | the RANCID folder (for Rehearse) |
+| `~/.cloginrc` | your own TACACS/ISE account -- jlogin's, not the tool's |
+| `config/credentials.json` (optional) | static local users for boxes whose TACACS is already dead |
 
 ## The fix, device by device
 
@@ -85,7 +76,9 @@ Nothing reaches a device without `--live`; `--live` without `--yes` only prints 
 
 ## Desired state (`config/desired_state.json`)
 
-One file describes the standard. Top-level sections apply to every platform;
+`config/desired_state.default.json` is the fleet standard and ships with the tool; on first
+start it is copied to `desired_state.json`, which is where the secret goes and which git
+ignores. One file describes the standard. Top-level sections apply to every platform;
 `platforms.ex` / `platforms.srx` / `platforms.acx` override them. A mapping such as
 `classes`, `users`, `communities` or `hosts` in an override *replaces* the base one;
 scalars and lists replace; other objects merge. `"auto"` for a source-address keeps the
@@ -200,5 +193,6 @@ venv/bin/python -m pytest tests/ -q
 
 ## Design
 
+The previous Streamlit tool was retired on 2026-10-03 (a copy is kept outside the repo).
 `docs/DESIGN.md` is the blueprint (sequence, safety model, layout, desired-state
 schema, how to add a platform). `docs/RUN_FLOW.html` is the run-flow diagram.

@@ -1,5 +1,12 @@
 # Releases
 
+## 2026-10-03 - Console only; shipped defaults
+
+- Removed the legacy Streamlit app from the repository (copy kept outside git); `requirements.txt` is now the console's.
+- `config/desired_state.default.json` ships the fleet standard and is copied to `desired_state.json` on first start; `cli.py check` prints exactly what is left to fill.
+- `run_dashboard.bat` builds the venv, starts the server and opens the browser only once it answers (the old launcher opened the browser first and looked dead).
+- `deploy/device-ems-console.service` systemd unit for the console.
+
 ## 2026-10-02 - Device EMS Console (rebuild)
 
 - New jlogin-driven engine (`core/`), CLI (`cli.py`) and Flask console (`webapp.py`, :5460) alongside the untouched legacy Streamlit app.

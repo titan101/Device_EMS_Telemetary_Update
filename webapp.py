@@ -371,7 +371,8 @@ with a self-reverting commit and a second login that proves the new AAA works be
 {% if ds.placeholders %}<span style="color:var(--red)">{{ ds.placeholders|length }} placeholder(s) still to fill.</span>{% elif ds.exists %}<span style="color:var(--green)">ready</span>{% else %}<span style="color:var(--red)">missing</span>{% endif %}</span></li>
 <li><span class="num">2</span><a href="{{ url_for('credentials_page') }}">Credentials</a><span class="note">jlogin's own account first, then the static local users, in order. {{ health.message }}</span></li>
 <li><span class="num">3</span><a href="{{ url_for('new_run') }}">New run</a><span class="note">Paste the devices (one per line) or upload a list; name it after the CM.</span></li>
-<li><span class="num">4</span>Rehearse<span class="note">From RANCID: fix file + exact rollback per device, nothing contacted. Read the diffs.</span></li>
+<li><span class="num">4</span>Rehearse<span class="note">From RANCID: fix file + exact rollback per device, nothing contacted. Read the diffs.
+{% if not rancid_default %}<span style="color:var(--amber)">Set the RANCID folder once in <a href="{{ url_for('settings_page') }}">Settings</a>.</span>{% endif %}</span></li>
 <li><span class="num">5</span>Run the ISE fix<span class="note">Arm (type LIVE), tick, go: discover -> build -> <span class="mono">commit confirmed</span> -> second login + verify -> commit. Resumable.</span></li>
 <li><span class="num">6</span>Recheck + MOP<span class="note">Boxes whose second login failed revert themselves; Recheck proves it. MOP and CSV from the run page.</span></li>
 </ol>
@@ -596,8 +597,10 @@ cli.py ledger [--state failed] [--export fleet.csv]</pre></section>
 @app.route("/")
 def index():
     conn = ledger.connect(cli.LEDGER_PATH)
+    cli.ensure_default_config()
     return render_template_string(INDEX_HTML, counts=ledger.state_counts(conn), ds=_desired_summary(),
-                                  health=session.check_jlogin_health(), recent=runs.list_runs(cli.RUNS_ROOT)[:8])
+                                  health=session.check_jlogin_health(), recent=runs.list_runs(cli.RUNS_ROOT)[:8],
+                                  rancid_default=_settings().get("rancid_folder", ""))
 
 
 @app.route("/runs")
@@ -887,7 +890,25 @@ def find_available_port(start: int) -> int:
     return start
 
 
+def _open_browser_when_ready(url: str) -> None:
+    """Launcher helper: open the browser only once the port answers, so the first tab
+    never shows 'can't connect' while Flask is still starting."""
+    import socket
+    import webbrowser
+    host, port = url.split("//", 1)[1].rsplit(":", 1)
+    for _ in range(60):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex((host, int(port))) == 0:
+                webbrowser.open(url)
+                return
+        threading.Event().wait(0.5)
+
+
 if __name__ == "__main__":
+    cli.ensure_default_config()
     port = int(os.environ.get("EMS_CONSOLE_PORT", find_available_port(DEFAULT_PORT)))
-    print(f"Device EMS Console on http://127.0.0.1:{port}  (DRY RUN until LIVE is typed)")
+    url = f"http://127.0.0.1:{port}"
+    print(f"Device EMS Console on {url}  (DRY RUN until LIVE is typed)")
+    if "--open-browser" in sys.argv:
+        threading.Thread(target=_open_browser_when_ready, args=(url,), daemon=True).start()
     app.run(host="127.0.0.1", port=port, debug=False)
